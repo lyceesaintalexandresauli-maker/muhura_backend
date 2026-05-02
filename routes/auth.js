@@ -108,6 +108,31 @@ const ensureLocalProfileForAuthUser = async (authUser) => {
     return result.rows[0];
   }
 
+  const metadataRole = String(authUser?.app_metadata?.role || "").trim().toLowerCase();
+  if (!validRoles.has(metadataRole)) {
+    return null;
+  }
+  const rawUsername =
+    String(authUser?.user_metadata?.username || authUser?.email?.split("@")[0] || "").trim() || `user_${authUser.id.slice(0, 8)}`;
+  const usernameSeed = rawUsername.replace(/[^a-zA-Z0-9_.-]/g, "_") || "user";
+  const usernameSuffix = authUser.id.replace(/-/g, "").slice(0, 6).toLowerCase();
+  const safeUsernameBase = `${usernameSeed}_${usernameSuffix}`.slice(0, 50);
+  const safeUsername = safeUsernameBase.length >= 3 ? safeUsernameBase : `user_${usernameSuffix}`;
+  const fullName = authUser?.user_metadata?.full_name || null;
+  const phone = authUser?.user_metadata?.phone || null;
+  const bio = authUser?.user_metadata?.bio || null;
+
+  result = await pool.query(
+    `INSERT INTO users (auth_user_id, username, email, full_name, phone, bio, role, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
+     ON CONFLICT (email) DO UPDATE SET auth_user_id = EXCLUDED.auth_user_id
+     RETURNING id, auth_user_id, username, email, full_name, phone, bio, profile_image, role, is_active, created_at`,
+    [authUser.id, safeUsername, String(authUser.email).trim().toLowerCase(), fullName, phone, bio, metadataRole]
+  );
+  if (result.rows.length > 0) {
+    return result.rows[0];
+  }
+
   return null;
 };
 
