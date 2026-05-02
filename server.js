@@ -16,15 +16,42 @@ const PORT = process.env.PORT || 5000;
 const uploadsRoot = path.join(__dirname, 'uploads');
 const assetsRoot = path.join(__dirname, 'assets');
 const uploadFolders = ['images', 'videos', 'documents', 'profiles'];
+const trimTrailingSlash = (value = '') => String(value).replace(/\/+$/, '');
 const allowedOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 const defaultAllowedOrigins = [
   'https://fronend-l7hh.onrender.com',
-  'https://muhura-web.onrender.com'
+  'https://muhura-web.onrender.com',
+  'https://lycee-muhura.onrender.com',
+  'https://muhura-frontend.onrender.com'
 ];
-const corsAllowedOrigins = Array.from(new Set([...allowedOrigins, ...defaultAllowedOrigins]));
+const corsAllowedOrigins = Array.from(
+  new Set([...allowedOrigins, ...defaultAllowedOrigins].map(trimTrailingSlash).filter(Boolean))
+);
+const corsOptions = {
+  origin: (origin, callback) => {
+    const normalizedOrigin = trimTrailingSlash(origin || '');
+    const isLocalhostDev = /^http:\/\/localhost:\d+$/i.test(normalizedOrigin);
+
+    if (
+      !origin ||
+      corsAllowedOrigins.length === 0 ||
+      corsAllowedOrigins.includes(normalizedOrigin) ||
+      isLocalhostDev
+    ) {
+      return callback(null, true);
+    }
+
+    return callback(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Origin', 'X-Requested-With', 'Content-Type', 'Accept', 'Authorization'],
+  optionsSuccessStatus: 204,
+  maxAge: 86400
+};
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -40,16 +67,9 @@ app.use(
   })
 );
 app.use(
-  cors({
-    origin: (origin, callback) => {
-      const isLocalhostDev = /^http:\/\/localhost:\d+$/.test(origin || '');
-      if (!origin || corsAllowedOrigins.length === 0 || corsAllowedOrigins.includes(origin) || isLocalhostDev) {
-        return callback(null, true);
-      }
-      return callback(new Error('Not allowed by CORS'));
-    }
-  })
+  cors(corsOptions)
 );
+app.options(/.*/, cors(corsOptions));
 app.use(express.json({ limit: '1mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(
