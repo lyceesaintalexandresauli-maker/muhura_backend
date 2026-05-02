@@ -109,9 +109,7 @@ const ensureLocalProfileForAuthUser = async (authUser) => {
   }
 
   const metadataRole = String(authUser?.app_metadata?.role || "").trim().toLowerCase();
-  if (!validRoles.has(metadataRole)) {
-    return null;
-  }
+  const role = validRoles.has(metadataRole) ? metadataRole : 'teacher';
   const rawUsername =
     String(authUser?.user_metadata?.username || authUser?.email?.split("@")[0] || "").trim() || `user_${authUser.id.slice(0, 8)}`;
   const usernameSeed = rawUsername.replace(/[^a-zA-Z0-9_.-]/g, "_") || "user";
@@ -127,7 +125,7 @@ const ensureLocalProfileForAuthUser = async (authUser) => {
      VALUES ($1, $2, $3, $4, $5, $6, $7, TRUE)
      ON CONFLICT (email) DO UPDATE SET auth_user_id = EXCLUDED.auth_user_id
      RETURNING id, auth_user_id, username, email, full_name, phone, bio, profile_image, role, is_active, created_at`,
-    [authUser.id, safeUsername, String(authUser.email).trim().toLowerCase(), fullName, phone, bio, metadataRole]
+    [authUser.id, safeUsername, String(authUser.email).trim().toLowerCase(), fullName, phone, bio, role]
   );
   if (result.rows.length > 0) {
     return result.rows[0];
