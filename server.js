@@ -20,6 +20,11 @@ const allowedOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const defaultAllowedOrigins = [
+  'https://fronend-l7hh.onrender.com',
+  'https://muhura-web.onrender.com'
+];
+const corsAllowedOrigins = Array.from(new Set([...allowedOrigins, ...defaultAllowedOrigins]));
 
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
@@ -38,7 +43,7 @@ app.use(
   cors({
     origin: (origin, callback) => {
       const isLocalhostDev = /^http:\/\/localhost:\d+$/.test(origin || '');
-      if (!origin || allowedOrigins.length === 0 || allowedOrigins.includes(origin) || isLocalhostDev) {
+      if (!origin || corsAllowedOrigins.length === 0 || corsAllowedOrigins.includes(origin) || isLocalhostDev) {
         return callback(null, true);
       }
       return callback(new Error('Not allowed by CORS'));
