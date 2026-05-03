@@ -92,7 +92,7 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   return next();
 });
-z
+
 if (!fs.existsSync(uploadsRoot)) {
   fs.mkdirSync(uploadsRoot, { recursive: true });
 }
