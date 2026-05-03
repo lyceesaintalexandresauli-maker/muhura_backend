@@ -14,7 +14,13 @@ const { getSupabaseConfigStatus } = require('./supabase');
 const app = express();
 const PORT = process.env.PORT || 5000;
 const uploadsRoot = path.join(__dirname, 'uploads');
-const assetsRoot = path.join(__dirname, 'assets');
+const assetDirectoryCandidates = [
+  path.join(__dirname, 'assets'),
+  path.join(__dirname, '../school-frontend/public/assets'),
+  path.join(process.cwd(), 'assets'),
+  path.join(process.cwd(), '../school-frontend/public/assets')
+];
+const assetsRoot = assetDirectoryCandidates.find((candidate) => fs.existsSync(candidate)) || assetDirectoryCandidates[0];
 const uploadFolders = ['images', 'videos', 'documents', 'profiles'];
 const trimTrailingSlash = (value = '') => String(value).replace(/\/+$/, '');
 const allowedOrigins = (process.env.CORS_ORIGIN || '')
@@ -86,7 +92,7 @@ app.use((req, res, next) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   return next();
 });
-
+z
 if (!fs.existsSync(uploadsRoot)) {
   fs.mkdirSync(uploadsRoot, { recursive: true });
 }
@@ -205,5 +211,6 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
+  console.log(`Static assets served from ${assetsRoot}`);
   console.log(`Server running on port ${PORT}`);
 });

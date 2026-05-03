@@ -113,6 +113,17 @@ CREATE TABLE files (
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE timetable_files (
+  id SERIAL PRIMARY KEY,
+  filename VARCHAR(255) UNIQUE NOT NULL,
+  path VARCHAR(500) NOT NULL,
+  original_name VARCHAR(255),
+  content_type VARCHAR(100),
+  size INTEGER,
+  uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE navigation_items (
   id SERIAL PRIMARY KEY,
   parent_id INTEGER REFERENCES navigation_items(id) ON DELETE CASCADE,
