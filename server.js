@@ -14,13 +14,6 @@ const { getSupabaseConfigStatus } = require('./supabase');
 const app = express();
 const PORT = process.env.PORT || 5000;
 const uploadsRoot = path.join(__dirname, 'uploads');
-const assetDirectoryCandidates = [
-  path.join(__dirname, 'assets'),
-  path.join(__dirname, '../school-frontend/public/assets'),
-  path.join(process.cwd(), 'assets'),
-  path.join(process.cwd(), '../school-frontend/public/assets')
-];
-const assetsRoot = assetDirectoryCandidates.find((candidate) => fs.existsSync(candidate)) || assetDirectoryCandidates[0];
 const uploadFolders = ['images', 'videos', 'documents', 'profiles'];
 const frontendDistRoot = path.join(__dirname, '../school-frontend/dist');
 const assetDirectoryCandidates = [
