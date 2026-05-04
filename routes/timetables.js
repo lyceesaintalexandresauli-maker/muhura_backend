@@ -7,6 +7,50 @@ const adminOnly = [authenticateToken, authorizeRoles('admin', 'dos')];
 const authRequired = [authenticateToken];
 const viewOnly = [authenticateToken, authorizeRoles('admin', 'teacher', 'dos')];
 
+// Published timetables for the public website (no auth; must be registered before /:id)
+router.get('/public/published', async (req, res) => {
+  try {
+    const { department, trade_level, academic_year, term } = req.query;
+    let query = `
+      SELECT t.id, t.class_name, t.department, t.trade_level, t.academic_year, t.term,
+             t.schedule_data, t.updated_at
+      FROM timetables t
+      WHERE t.status = 'published'
+    `;
+    const params = [];
+    let paramIndex = 1;
+
+    if (department) {
+      query += ` AND t.department = $${paramIndex}`;
+      params.push(department);
+      paramIndex += 1;
+    }
+    if (trade_level) {
+      query += ` AND t.trade_level = $${paramIndex}`;
+      params.push(trade_level);
+      paramIndex += 1;
+    }
+    if (academic_year) {
+      query += ` AND t.academic_year = $${paramIndex}`;
+      params.push(academic_year);
+      paramIndex += 1;
+    }
+    if (term) {
+      query += ` AND t.term = $${paramIndex}`;
+      params.push(term);
+      paramIndex += 1;
+    }
+
+    query += ` ORDER BY t.department ASC NULLS LAST, t.trade_level ASC NULLS LAST, t.class_name ASC`;
+
+    const result = await pool.query(query, params);
+    res.json(result.rows);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 // Get all timetables (with filters)
 router.get('/', authRequired, async (req, res) => {
   try {
@@ -374,9 +418,12 @@ async function distributeTimetable(client, timetableId, userId) {
   const scheduleData = timetable.schedule_data;
   const teacherCodes = new Set();
   
-  for (const timeSlot in scheduleData) {
-    for (const day in scheduleData[timeSlot]) {
-      const cell = scheduleData[timeSlot][day];
+  for (const timeSlot of Object.keys(scheduleData)) {
+    const row = scheduleData[timeSlot];
+    if (!row || typeof row !== 'object') continue;
+    for (const day of Object.keys(row)) {
+      const cell = row[day];
+      if (typeof cell !== 'string') continue;
       const match = cell.match(/\((\d+)\)/);
       if (match) {
         teacherCodes.add(match[1]);
