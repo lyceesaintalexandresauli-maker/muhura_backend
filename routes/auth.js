@@ -191,6 +191,49 @@ const authorizeRoles =
     return next();
   };
 
+router.post('/login', async (req, res) => {
+  try {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    const password = String(req.body?.password || '');
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Email and password are required' });
+    }
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({ error: 'Invalid email format' });
+    }
+
+    if (!canUseSupabaseAuthClient()) {
+      return respondSupabaseConfigError(res, 'auth');
+    }
+
+    const supabase = getSupabaseAuthClient();
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+
+    if (error || !data?.session?.access_token || !data?.user) {
+      return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    const profile = await ensureLocalProfileForAuthUser(data.user);
+    if (!profile) {
+      return res.status(403).json({ error: 'No staff profile is linked to this Supabase account' });
+    }
+    if (!profile.is_active) {
+      return res.status(403).json({ error: 'Account is disabled' });
+    }
+
+    return res.json({
+      token: data.session.access_token,
+      refresh_token: data.session.refresh_token,
+      expires_at: data.session.expires_at,
+      user: pickProfile(profile),
+    });
+  } catch (err) {
+    console.error('[Auth] Login failed:', err);
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
+
 router.post('/register', async (req, res) => {
   try {
     const { username, email, password, role: requestedRole, setupKey, full_name = null, phone = null, bio = null } = req.body;
