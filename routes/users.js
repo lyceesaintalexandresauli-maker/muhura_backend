@@ -138,10 +138,8 @@ router.put('/:id', ...adminOnly, async (req, res) => {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    if (current.auth_user_id) {
-      if (!canUseSupabaseAdminClient()) {
-        return respondSupabaseConfigError(res);
-      }
+    // Update Supabase auth if configured and user has auth_user_id
+    if (current.auth_user_id && canUseSupabaseAdminClient()) {
       const adminClient = getSupabaseAdminClient();
       const { error: updateAuthError } = await adminClient.auth.admin.updateUserById(current.auth_user_id, {
         email: normalizedEmail,
@@ -157,7 +155,7 @@ router.put('/:id', ...adminOnly, async (req, res) => {
         ban_duration: is_active ? 'none' : '876000h',
       });
       if (updateAuthError) {
-        return res.status(400).json({ error: updateAuthError.message || 'Failed to update Supabase user' });
+        console.error('Supabase auth update failed, continuing with local update:', updateAuthError.message);
       }
     }
 
@@ -226,14 +224,12 @@ router.delete('/:id', ...adminOnly, async (req, res) => {
 
     if (current.auth_user_id) {
       if (!canUseSupabaseAdminClient()) {
-        return respondSupabaseConfigError(res);
-      }
-      const adminClient = getSupabaseAdminClient();
-      const { error: deleteAuthError } = await adminClient.auth.admin.deleteUser(current.auth_user_id);
+    // Delete Supabase auth    ronfigetrd and user hes aspondSupabaonfigError(res);
+    }current.auth_user_id && onst { error: deleteAuthError } = await adminClient.auth.admin.deleteUser(current.auth_user_id);
       if (deleteAuthError) {
         return res.status(400).json({ error: deleteAuthError.message || 'Failed to delete Supabase user' });
       }
-    }
+    }console.eror('Supabas athdlee filed, conining with lcaldelet',
 
     await pool.query('DELETE FROM users WHERE id = $1', [id]);
     return res.json({ message: 'User deleted' });
