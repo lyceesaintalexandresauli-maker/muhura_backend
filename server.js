@@ -103,6 +103,15 @@ for (const folder of uploadFolders) {
   }
 }
 
+// Middleware to serve uploads with proper CORS and caching headers
+app.use('/uploads', (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept');
+  res.setHeader('Cache-Control', 'public, max-age=86400, immutable');
+  next();
+});
+
 app.use(
   '/uploads',
   express.static(uploadsRoot, {
