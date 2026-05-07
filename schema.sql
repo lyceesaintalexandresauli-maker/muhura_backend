@@ -10,7 +10,7 @@ CREATE TABLE users (
   full_name VARCHAR(120),
   phone VARCHAR(30),
   bio TEXT,
-  profile_image VARCHAR(255),
+  profile_image VARCHAR(500),
   role VARCHAR(20) NOT NULL CHECK (role IN ('admin', 'teacher', 'secretary', 'dos')),
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -23,7 +23,7 @@ CREATE TABLE content (
   section TEXT,
   title VARCHAR(255),
   content TEXT,
-  image_path VARCHAR(255),
+  image_path VARCHAR(500),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -33,7 +33,7 @@ CREATE TABLE events (
   title TEXT NOT NULL,
   description TEXT,
   category VARCHAR(50),
-  image_path VARCHAR(255),
+  image_path VARCHAR(500),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -41,7 +41,7 @@ CREATE TABLE announcements (
   id SERIAL PRIMARY KEY,
   title TEXT NOT NULL,
   content TEXT,
-  image_path VARCHAR(255),
+  image_path VARCHAR(500),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -51,7 +51,7 @@ CREATE TABLE staff (
   position VARCHAR(100),
   department VARCHAR(100),
   bio TEXT,
-  image_path VARCHAR(255),
+  image_path VARCHAR(500),
   email VARCHAR(100),
   phone VARCHAR(20),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -62,7 +62,7 @@ CREATE TABLE departments (
   name VARCHAR(100) NOT NULL,
   code VARCHAR(10) UNIQUE NOT NULL,
   description TEXT,
-  image_path VARCHAR(255),
+  image_path VARCHAR(500),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -86,7 +86,7 @@ CREATE TABLE students (
   parent_phone VARCHAR(30),
   email VARCHAR(120),
   address TEXT,
-  image_path VARCHAR(255),
+  image_path VARCHAR(500),
   is_active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
