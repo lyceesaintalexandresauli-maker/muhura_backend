@@ -159,6 +159,7 @@ const usersRoutes = require('./routes/users');
 const timetablesRoutes = require('./routes/timetables');
 const galleryRoutes = require('./routes/gallery');
 const schoolWorkersRoutes = require('./routes/schoolWorkers');
+const resultsRoutes = require('./routes/results');
 const chatRoutes = require('./routes/chat');
 const { router: authRoutes } = require('./routes/auth');
 
@@ -176,6 +177,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/timetables', timetablesRoutes);
 app.use('/api/gallery', galleryRoutes);
 app.use('/api/school-workers', schoolWorkersRoutes);
+app.use('/api/results', resultsRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/auth', authRoutes);
 

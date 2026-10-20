@@ -13,7 +13,8 @@ const {
 } = require('../supabase');
 
 const router = express.Router();
-const validRoles = new Set(['admin', 'teacher', 'secretary', 'dos']);
+const validRoles = new Set(['admin', 'teacher', 'secretary', 'dos', 'parent']);
+const staffRoles = new Set(['admin', 'teacher', 'secretary', 'dos']);
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const usernameRegex = /^[a-zA-Z0-9_.-]{3,50}$/;
 
@@ -26,6 +27,78 @@ const authLimiter = rateLimit({
 });
 
 router.use(authLimiter);
+
+router.post('/parent/register', async (req, res) => {
+  const email = String(req.body?.email || '').trim().toLowerCase();
+  const password = String(req.body?.password || '');
+  const fullName = String(req.body?.full_name || '').trim();
+
+  if (!email || !password || !fullName) {
+    return res.status(400).json({ error: 'Full name, email and password are required' });
+  }
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ error: 'Invalid email format' });
+  }
+  if (password.length < 8) {
+    return res.status(400).json({ error: 'Password must be at least 8 characters long' });
+  }
+  if (fullName.length > 120) {
+    return res.status(400).json({ error: 'Full name must be 120 characters or fewer' });
+  }
+  if (!canUseSupabaseAdminClient()) {
+    return respondSupabaseConfigError(res, 'admin');
+  }
+
+  let createdUserId;
+  try {
+    const existing = await pool.query('SELECT 1 FROM users WHERE LOWER(email) = $1', [email]);
+    if (existing.rows.length > 0) {
+      return res.status(409).json({ error: 'An account already exists for this email' });
+    }
+
+    const adminClient = getSupabaseAdminClient();
+    const { data, error } = await adminClient.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: { full_name },
+      app_metadata: { role: 'parent' },
+    });
+
+    if (error || !data?.user) {
+      const message = String(error?.message || '');
+      if (/already|registered|exists/i.test(message)) {
+        return res.status(409).json({ error: 'An account already exists for this email' });
+      }
+      console.error('[Auth] Parent account creation failed:', message || 'No user returned');
+      return res.status(400).json({ error: 'Unable to create parent account' });
+    }
+
+    createdUserId = data.user.id;
+    const usernameSeed = email.split('@')[0].replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 38) || 'parent';
+    const username = `${usernameSeed}_${createdUserId.replace(/-/g, '').slice(0, 8)}`;
+    const result = await pool.query(
+      `INSERT INTO users (auth_user_id, username, email, full_name, role, is_active)
+       VALUES ($1, $2, $3, $4, 'parent', TRUE)
+       RETURNING id, auth_user_id, username, email, full_name, phone, bio, profile_image, role, is_active, created_at`,
+      [createdUserId, username, email, fullName]
+    );
+
+    return res.status(201).json({ user: pickProfile(result.rows[0]) });
+  } catch (err) {
+    console.error('[Auth] Parent account creation failed:', err);
+    if (createdUserId && canUseSupabaseAdminClient()) {
+      const { error } = await getSupabaseAdminClient().auth.admin.deleteUser(createdUserId);
+      if (error) {
+        console.error('[Auth] Failed to clean up incomplete parent account:', error.message);
+      }
+    }
+    if (err.code === '23505') {
+      return res.status(409).json({ error: 'An account already exists for this email' });
+    }
+    return res.status(500).json({ error: 'Server error' });
+  }
+});
 
 const profileUploadRoot = path.join(__dirname, '../uploads/profiles');
 if (!fs.existsSync(profileUploadRoot)) {
@@ -250,7 +323,7 @@ router.post('/register', async (req, res) => {
     if (String(password).length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters long' });
     }
-    if (!validRoles.has(requestedRole)) {
+    if (!staffRoles.has(requestedRole)) {
       return res.status(400).json({ error: 'Invalid role. Allowed roles: admin, teacher, secretary, dos' });
     }
     if (!process.env.ADMIN_SETUP_KEY || setupKey !== process.env.ADMIN_SETUP_KEY) {

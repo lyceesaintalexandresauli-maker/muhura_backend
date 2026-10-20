@@ -15,8 +15,7 @@ Node.js and PostgreSQL backend for the Lycee Saint Alexandre Sauli de Muhura sch
 
 4. Set up PostgreSQL database:
    - Create a database named `school_db`
-   - Run `schema.sql` to create tables
-   - For existing databases, run migration files in `migrations/`
+   - Run `schema.sql` to create tables, or run any new migration files in `migrations/` against an existing database
 
 5. Configure environment variables:
    - Copy `.env` and update with your database credentials
@@ -30,8 +29,9 @@ Node.js and PostgreSQL backend for the Lycee Saint Alexandre Sauli de Muhura sch
 
 - Backend uses PostgreSQL (`pg`) only.
 - Helmet security headers, anti-parameter-pollution, request size limits, and rate limiting are enabled.
-- Roles: `admin`, `teacher`, `secretary` (staff only).
-- Website clients are visitors and do not authenticate.
+- Roles: `admin`, `teacher`, `secretary`, `dos` (staff), and `parent`.
+- Parents use email/password accounts to look up published results by student name and program.
+- Result lookup is available to any signed-in parent account, as requested; it is not restricted to that parent's children.
 - 2FA (email OTP) is required for `admin`, `teacher`, and `secretary`.
 - Admin has full control of management endpoints (create/update/delete for site resources).
 - JWT validation enforces `HS256`, `issuer`, and `audience`.
@@ -72,6 +72,14 @@ Node.js and PostgreSQL backend for the Lycee Saint Alexandre Sauli de Muhura sch
 - `POST /api/students` - Admin creates student
 - `PUT /api/students/:id` - Admin updates student
 - `DELETE /api/students/:id` - Admin deletes student
+
+### Student Results
+- `POST /api/auth/parent/register` - Create a parent account with a name, email, and password (minimum 8 characters)
+- `GET /api/results` - Admin lists student results, including drafts
+- `POST /api/results` - Admin creates/updates marks and chooses whether to publish the result
+- `POST /api/results/lookup` - Signed-in parent searches published results using the student's full name and program (`SWD`, `NIT`, `CSA`, `ACC`, or `FAD`)
+- Run `migrations/2026-10-20_student_results.sql` on an existing database before deploying the updated backend. New databases can use `schema.sql`.
+- Parent account creation requires backend `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and database connection variables. The service-role key is server-only and must never be set in a frontend environment.
 
 ### Departments
 - `GET /api/departments` - Get all departments
