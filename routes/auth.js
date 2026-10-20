@@ -88,13 +88,26 @@ router.post('/parent/register', async (req, res) => {
   } catch (err) {
     console.error('[Auth] Parent account creation failed:', err);
     if (createdUserId && canUseSupabaseAdminClient()) {
-      const { error } = await getSupabaseAdminClient().auth.admin.deleteUser(createdUserId);
-      if (error) {
-        console.error('[Auth] Failed to clean up incomplete parent account:', error.message);
+      try {
+        const { error } = await getSupabaseAdminClient().auth.admin.deleteUser(createdUserId);
+        if (error) {
+          console.error('[Auth] Failed to clean up incomplete parent account:', error.message);
+        }
+      } catch (cleanupError) {
+        console.error('[Auth] Failed to clean up incomplete parent account:', cleanupError);
       }
     }
     if (err.code === '23505') {
       return res.status(409).json({ error: 'An account already exists for this email' });
+    }
+    if (err.code === '23514') {
+      return res.status(503).json({
+        error: 'Parent account setup is incomplete. Apply the student-results database migration, then try again.',
+        code: 'PARENT_ROLE_MIGRATION_REQUIRED',
+      });
+    }
+    if (String(err.code || '').startsWith('08')) {
+      return res.status(503).json({ error: 'The account service is temporarily unavailable. Please try again shortly.' });
     }
     return res.status(500).json({ error: 'Server error' });
   }

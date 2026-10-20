@@ -79,6 +79,7 @@ Node.js and PostgreSQL backend for the Lycee Saint Alexandre Sauli de Muhura sch
 - `POST /api/results` - Admin creates/updates marks and chooses whether to publish the result
 - `POST /api/results/lookup` - Signed-in parent searches published results using the student's full name and program (`SWD`, `NIT`, `CSA`, `ACC`, or `FAD`)
 - Run `migrations/2026-10-20_student_results.sql` on an existing database before deploying the updated backend. New databases can use `schema.sql`.
+- If parent sign-up reports `PARENT_ROLE_MIGRATION_REQUIRED`, apply that migration to the production database before retrying registration.
 - Parent account creation requires backend `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and database connection variables. The service-role key is server-only and must never be set in a frontend environment.
 
 ### Departments
