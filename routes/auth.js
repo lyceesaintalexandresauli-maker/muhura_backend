@@ -28,89 +28,8 @@ const authLimiter = rateLimit({
 
 router.use(authLimiter);
 
-router.post('/parent/register', async (req, res) => {
-  const email = String(req.body?.email || '').trim().toLowerCase();
-  const password = String(req.body?.password || '');
-  const fullName = String(req.body?.full_name || '').trim();
-
-  if (!email || !password || !fullName) {
-    return res.status(400).json({ error: 'Full name, email and password are required' });
-  }
-  if (!emailRegex.test(email)) {
-    return res.status(400).json({ error: 'Invalid email format' });
-  }
-  if (password.length < 8) {
-    return res.status(400).json({ error: 'Password must be at least 8 characters long' });
-  }
-  if (fullName.length > 120) {
-    return res.status(400).json({ error: 'Full name must be 120 characters or fewer' });
-  }
-  if (!canUseSupabaseAdminClient()) {
-    return respondSupabaseConfigError(res, 'admin');
-  }
-
-  let createdUserId;
-  try {
-    const existing = await pool.query('SELECT 1 FROM users WHERE LOWER(email) = $1', [email]);
-    if (existing.rows.length > 0) {
-      return res.status(409).json({ error: 'An account already exists for this email' });
-    }
-
-    const adminClient = getSupabaseAdminClient();
-    const { data, error } = await adminClient.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { full_name },
-      app_metadata: { role: 'parent' },
-    });
-
-    if (error || !data?.user) {
-      const message = String(error?.message || '');
-      if (/already|registered|exists/i.test(message)) {
-        return res.status(409).json({ error: 'An account already exists for this email' });
-      }
-      console.error('[Auth] Parent account creation failed:', message || 'No user returned');
-      return res.status(400).json({ error: 'Unable to create parent account' });
-    }
-
-    createdUserId = data.user.id;
-    const usernameSeed = email.split('@')[0].replace(/[^a-zA-Z0-9_.-]/g, '_').slice(0, 38) || 'parent';
-    const username = `${usernameSeed}_${createdUserId.replace(/-/g, '').slice(0, 8)}`;
-    const result = await pool.query(
-      `INSERT INTO users (auth_user_id, username, email, full_name, role, is_active)
-       VALUES ($1, $2, $3, $4, 'parent', TRUE)
-       RETURNING id, auth_user_id, username, email, full_name, phone, bio, profile_image, role, is_active, created_at`,
-      [createdUserId, username, email, fullName]
-    );
-
-    return res.status(201).json({ user: pickProfile(result.rows[0]) });
-  } catch (err) {
-    console.error('[Auth] Parent account creation failed:', err);
-    if (createdUserId && canUseSupabaseAdminClient()) {
-      try {
-        const { error } = await getSupabaseAdminClient().auth.admin.deleteUser(createdUserId);
-        if (error) {
-          console.error('[Auth] Failed to clean up incomplete parent account:', error.message);
-        }
-      } catch (cleanupError) {
-        console.error('[Auth] Failed to clean up incomplete parent account:', cleanupError);
-      }
-    }
-    if (err.code === '23505') {
-      return res.status(409).json({ error: 'An account already exists for this email' });
-    }
-    if (err.code === '23514') {
-      return res.status(503).json({
-        error: 'Parent account setup is incomplete. Apply the student-results database migration, then try again.',
-        code: 'PARENT_ROLE_MIGRATION_REQUIRED',
-      });
-    }
-    if (String(err.code || '').startsWith('08')) {
-      return res.status(503).json({ error: 'The account service is temporarily unavailable. Please try again shortly.' });
-    }
-    return res.status(500).json({ error: 'Server error' });
-  }
+router.post('/parent/register', (req, res) => {
+  return res.status(404).json({ error: 'Parent account registration is unavailable' });
 });
 
 const profileUploadRoot = path.join(__dirname, '../uploads/profiles');
@@ -306,6 +225,9 @@ router.post('/login', async (req, res) => {
     }
     if (!profile.is_active) {
       return res.status(403).json({ error: 'Account is disabled' });
+    }
+    if (!staffRoles.has(profile.role)) {
+      return res.status(403).json({ error: 'Staff login only' });
     }
 
     return res.json({

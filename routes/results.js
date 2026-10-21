@@ -5,7 +5,6 @@ const { authenticateToken, authorizeRoles } = require('./auth');
 
 const router = express.Router();
 const adminOnly = [authenticateToken, authorizeRoles('admin')];
-const parentOnly = [authenticateToken, authorizeRoles('parent')];
 const programCodes = new Set(['SWD', 'NIT', 'CSA', 'ACC', 'FAD']);
 const lookupLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -104,7 +103,7 @@ const validateResult = (body) => {
   };
 };
 
-router.post('/lookup', ...parentOnly, lookupLimiter, async (req, res) => {
+router.post('/lookup', lookupLimiter, async (req, res) => {
   const studentName = String(req.body?.student_name || '').trim();
   const programCode = String(req.body?.program_code || '').trim().toUpperCase();
 
@@ -127,9 +126,18 @@ router.post('/lookup', ...parentOnly, lookupLimiter, async (req, res) => {
        LIMIT 50`,
       [studentName, programCode]
     );
-    return res.json({ results: results.rows });
+    const publicResults = results.rows.map(({ id, student_name, program_code, academic_year, term, remarks, subjects }) => ({
+      id,
+      student_name,
+      program_code,
+      academic_year,
+      term,
+      remarks,
+      subjects,
+    }));
+    return res.json({ results: publicResults });
   } catch (err) {
-    console.error('[Results] Parent lookup failed:', err);
+    console.error('[Results] Public lookup failed:', err);
     return res.status(500).json({ error: 'Unable to retrieve results right now' });
   }
 });
