@@ -14,7 +14,6 @@ const levelsByProgram = {
   FAD: ['L3FAD', 'L4FAD', 'L5FAD', 'L3', 'L4', 'L5'],
 };
 
-const baseLevel = (value) => String(value || '').trim().toUpperCase().replace(/^LEVEL\s*/, 'L').match(/^(L[345]|S[456])/)?.[0] || '';
 const lookupLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
@@ -144,15 +143,13 @@ router.post('/lookup', lookupLimiter, async (req, res) => {
       `SELECT * FROM (${resultSelect}) AS ranked_results
        WHERE LOWER(TRIM(student_name)) = LOWER(TRIM($1))
          AND program_code = $2
-         AND (
-           UPPER(TRIM(class_level)) = $3
-           OR SUBSTRING(REGEXP_REPLACE(UPPER(TRIM(class_level)), '^LEVEL[[:space:]]*', 'L') FROM '^(L[345]|S[456])') = $4
-         )
+         AND REGEXP_REPLACE(REGEXP_REPLACE(UPPER(TRIM(class_level)), '^LEVEL[[:space:]]*', 'L'), '[^A-Z0-9]', '', 'g')
+           = REGEXP_REPLACE($3, '[^A-Z0-9]', '', 'g')
          AND is_published = TRUE
          AND student_id IN (SELECT id FROM students WHERE is_active = TRUE)
        ORDER BY academic_year DESC, term DESC, updated_at DESC
        LIMIT 50`,
-      [studentName, programCode, classLevel, baseLevel(classLevel)]
+      [studentName, programCode, classLevel]
     );
     const publicResults = results.rows.map(({ id, student_name, program_code, class_level, academic_year, term, remarks, subjects, total_marks, maximum_marks, position }) => ({
       id,
@@ -248,6 +245,18 @@ router.post('/', ...adminOnly, async (req, res) => {
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[Results] Save failed:', err);
+    if (err.code === '42P01') {
+      return res.status(503).json({
+        error: 'Student results tables are missing. Apply migrations/2026-10-20_student_results.sql to the database.',
+        code: 'RESULTS_MIGRATION_REQUIRED',
+      });
+    }
+    if (err.code === '42703') {
+      return res.status(503).json({
+        error: 'The student results database schema is out of date. Apply migrations/2026-10-20_student_results.sql.',
+        code: 'RESULTS_SCHEMA_OUTDATED',
+      });
+    }
     return res.status(500).json({ error: 'Unable to save student results' });
   } finally {
     client.release();
