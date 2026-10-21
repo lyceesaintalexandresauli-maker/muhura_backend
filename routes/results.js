@@ -7,12 +7,14 @@ const router = express.Router();
 const adminOnly = [authenticateToken, authorizeRoles('admin')];
 const programCodes = new Set(['SWD', 'NIT', 'CSA', 'ACC', 'FAD']);
 const levelsByProgram = {
-  SWD: ['L3SWD', 'L4SWDA', 'L4SWDB', 'L5SWD'],
-  NIT: ['L3NIT', 'L4NITA', 'L4NITB', 'L5NIT'],
-  CSA: ['L3CSA', 'L4CSA', 'L5CSA'],
-  ACC: ['S4ACC', 'S5ACC', 'S6ACC'],
-  FAD: ['L3FAD', 'L4FAD', 'L5FAD'],
+  SWD: ['L3SWD', 'L4SWDA', 'L4SWDB', 'L5SWD', 'L3', 'L4', 'L5'],
+  NIT: ['L3NIT', 'L4NITA', 'L4NITB', 'L5NIT', 'L3', 'L4', 'L5'],
+  CSA: ['L3CSA', 'L4CSA', 'L5CSA', 'L3', 'L4', 'L5'],
+  ACC: ['S4ACC', 'S5ACC', 'S6ACC', 'S4', 'S5', 'S6'],
+  FAD: ['L3FAD', 'L4FAD', 'L5FAD', 'L3', 'L4', 'L5'],
 };
+
+const baseLevel = (value) => String(value || '').trim().toUpperCase().replace(/^LEVEL\s*/, 'L').match(/^(L[345]|S[456])/)?.[0] || '';
 const lookupLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
@@ -142,12 +144,15 @@ router.post('/lookup', lookupLimiter, async (req, res) => {
       `SELECT * FROM (${resultSelect}) AS ranked_results
        WHERE LOWER(TRIM(student_name)) = LOWER(TRIM($1))
          AND program_code = $2
-         AND class_level = $3
+         AND (
+           UPPER(TRIM(class_level)) = $3
+           OR SUBSTRING(REGEXP_REPLACE(UPPER(TRIM(class_level)), '^LEVEL[[:space:]]*', 'L') FROM '^(L[345]|S[456])') = $4
+         )
          AND is_published = TRUE
          AND student_id IN (SELECT id FROM students WHERE is_active = TRUE)
        ORDER BY academic_year DESC, term DESC, updated_at DESC
        LIMIT 50`,
-      [studentName, programCode, classLevel]
+      [studentName, programCode, classLevel, baseLevel(classLevel)]
     );
     const publicResults = results.rows.map(({ id, student_name, program_code, class_level, academic_year, term, remarks, subjects, total_marks, maximum_marks, position }) => ({
       id,
