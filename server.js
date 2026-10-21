@@ -39,7 +39,7 @@ const corsAllowedOrigins = Array.from(
 const corsOptions = {
   origin: (origin, callback) => {
     const normalizedOrigin = trimTrailingSlash(origin || '');
-    const isLocalhostDev = /^http:\/\/localhost:\d+$/i.test(normalizedOrigin);
+    const isLocalhostDev = /^http:\/\/(localhost|127\.0\.0\.1):\d+$/i.test(normalizedOrigin);
 
     if (
       !origin ||

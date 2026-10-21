@@ -6,6 +6,13 @@ const { authenticateToken, authorizeRoles } = require('./auth');
 const router = express.Router();
 const adminOnly = [authenticateToken, authorizeRoles('admin')];
 const programCodes = new Set(['SWD', 'NIT', 'CSA', 'ACC', 'FAD']);
+const levelsByProgram = {
+  SWD: ['L3SWD', 'L4SWDA', 'L4SWDB', 'L5SWD'],
+  NIT: ['L3NIT', 'L4NITA', 'L4NITB', 'L5NIT'],
+  CSA: ['L3CSA', 'L4CSA', 'L5CSA'],
+  ACC: ['S4ACC', 'S5ACC', 'S6ACC'],
+  FAD: ['L3FAD', 'L4FAD', 'L5FAD'],
+};
 const lookupLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 30,
@@ -15,32 +22,44 @@ const lookupLimiter = rateLimit({
 });
 
 const resultSelect = `
-  SELECT
-    r.id,
-    r.student_id,
-    CONCAT_WS(' ', s.first_name, s.last_name) AS student_name,
-    s.student_code,
-    r.program_code,
-    r.academic_year,
-    r.term,
-    r.remarks,
-    r.is_published,
-    r.created_at,
-    r.updated_at,
-    COALESCE(
-      JSON_AGG(
-        JSON_BUILD_OBJECT(
-          'id', subject.id,
-          'subject_name', subject.subject_name,
-          'score', subject.score,
-          'max_score', subject.max_score
-        ) ORDER BY subject.id
-      ) FILTER (WHERE subject.id IS NOT NULL),
-      '[]'::json
-    ) AS subjects
-  FROM student_results r
-  JOIN students s ON s.id = r.student_id
-  LEFT JOIN student_result_subjects subject ON subject.result_id = r.id
+  SELECT result_rows.*,
+    RANK() OVER (
+      PARTITION BY program_code, academic_year, term, department, class_level
+      ORDER BY total_marks DESC
+    ) AS position
+  FROM (
+    SELECT
+      r.id,
+      r.student_id,
+      CONCAT_WS(' ', s.first_name, s.last_name) AS student_name,
+      s.student_code,
+      s.class_level,
+      s.department,
+      r.program_code,
+      r.academic_year,
+      r.term,
+      r.remarks,
+      r.is_published,
+      r.created_at,
+      r.updated_at,
+      COALESCE(SUM(subject.score), 0) AS total_marks,
+      COALESCE(SUM(subject.max_score), 0) AS maximum_marks,
+      COALESCE(
+        JSON_AGG(
+          JSON_BUILD_OBJECT(
+            'id', subject.id,
+            'subject_name', subject.subject_name,
+            'score', subject.score,
+            'max_score', subject.max_score
+          ) ORDER BY subject.id
+        ) FILTER (WHERE subject.id IS NOT NULL),
+        '[]'::json
+      ) AS subjects
+    FROM student_results r
+    JOIN students s ON s.id = r.student_id
+    LEFT JOIN student_result_subjects subject ON subject.result_id = r.id
+    GROUP BY r.id, s.id
+  ) AS result_rows
 `;
 
 const validateResult = (body) => {
@@ -106,6 +125,7 @@ const validateResult = (body) => {
 router.post('/lookup', lookupLimiter, async (req, res) => {
   const studentName = String(req.body?.student_name || '').trim();
   const programCode = String(req.body?.program_code || '').trim().toUpperCase();
+  const classLevel = String(req.body?.class_level || '').trim().toUpperCase();
 
   if (studentName.length < 3 || studentName.length > 160) {
     return res.status(400).json({ error: 'Enter the student’s full name (3 to 160 characters)' });
@@ -113,27 +133,34 @@ router.post('/lookup', lookupLimiter, async (req, res) => {
   if (!programCodes.has(programCode)) {
     return res.status(400).json({ error: 'Choose a valid student program' });
   }
+  if (!levelsByProgram[programCode]?.includes(classLevel)) {
+    return res.status(400).json({ error: 'Choose a valid level or section for this program' });
+  }
 
   try {
     const results = await pool.query(
-      `${resultSelect}
-       WHERE LOWER(TRIM(CONCAT_WS(' ', s.first_name, s.last_name))) = LOWER(TRIM($1))
-         AND r.program_code = $2
-         AND r.is_published = TRUE
-         AND s.is_active = TRUE
-       GROUP BY r.id, s.id
-       ORDER BY r.academic_year DESC, r.term DESC, r.updated_at DESC
+      `SELECT * FROM (${resultSelect}) AS ranked_results
+       WHERE LOWER(TRIM(student_name)) = LOWER(TRIM($1))
+         AND program_code = $2
+         AND class_level = $3
+         AND is_published = TRUE
+         AND student_id IN (SELECT id FROM students WHERE is_active = TRUE)
+       ORDER BY academic_year DESC, term DESC, updated_at DESC
        LIMIT 50`,
-      [studentName, programCode]
+      [studentName, programCode, classLevel]
     );
-    const publicResults = results.rows.map(({ id, student_name, program_code, academic_year, term, remarks, subjects }) => ({
+    const publicResults = results.rows.map(({ id, student_name, program_code, class_level, academic_year, term, remarks, subjects, total_marks, maximum_marks, position }) => ({
       id,
       student_name,
       program_code,
+      class_level,
       academic_year,
       term,
       remarks,
       subjects,
+      total_marks,
+      maximum_marks,
+      position,
     }));
     return res.json({ results: publicResults });
   } catch (err) {
@@ -145,9 +172,8 @@ router.post('/lookup', lookupLimiter, async (req, res) => {
 router.get('/', ...adminOnly, async (req, res) => {
   try {
     const results = await pool.query(
-      `${resultSelect}
-       GROUP BY r.id, s.id
-       ORDER BY r.updated_at DESC
+      `SELECT * FROM (${resultSelect}) AS ranked_results
+       ORDER BY updated_at DESC
        LIMIT 500`
     );
     return res.json(results.rows);
@@ -169,12 +195,18 @@ router.post('/', ...adminOnly, async (req, res) => {
   try {
     await client.query('BEGIN');
     const student = await client.query(
-      'SELECT id FROM students WHERE id = $1 AND is_active = TRUE',
+      'SELECT id, department FROM students WHERE id = $1 AND is_active = TRUE',
       [studentId]
     );
     if (student.rows.length === 0) {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Active student not found' });
+    }
+    const studentDepartment = String(student.rows[0].department || '').trim().toUpperCase();
+    const allowedDepartments = programCode === 'SWD' ? ['SWD', 'SOD'] : [programCode];
+    if (!allowedDepartments.includes(studentDepartment)) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'The selected student does not belong to this program' });
     }
 
     const saved = await client.query(
@@ -202,9 +234,8 @@ router.post('/', ...adminOnly, async (req, res) => {
     }
 
     const result = await client.query(
-      `${resultSelect}
-       WHERE r.id = $1
-       GROUP BY r.id, s.id`,
+      `SELECT * FROM (${resultSelect}) AS ranked_results
+       WHERE id = $1`,
       [resultId]
     );
     await client.query('COMMIT');
