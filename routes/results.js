@@ -5,6 +5,7 @@ const { authenticateToken, authorizeRoles } = require('./auth');
 
 const router = express.Router();
 const adminOnly = [authenticateToken, authorizeRoles('admin')];
+const resultManagerAccess = [authenticateToken, authorizeRoles('admin', 'teacher')];
 const programCodes = new Set(['SWD', 'NIT', 'CSA', 'ACC', 'FAD']);
 const levelsByProgram = {
   SWD: ['L3SWD', 'L4SWDA', 'L4SWDB', 'L5SWD', 'L3', 'L4', 'L5'],
@@ -41,6 +42,7 @@ const resultSelect = `
       r.term,
       r.remarks,
       r.is_published,
+      r.created_by,
       r.created_at,
       r.updated_at,
       COALESCE(SUM(subject.score), 0) AS total_marks,
@@ -171,12 +173,16 @@ router.post('/lookup', lookupLimiter, async (req, res) => {
   }
 });
 
-router.get('/', ...adminOnly, async (req, res) => {
+router.get('/', ...resultManagerAccess, async (req, res) => {
   try {
+    const teacherFilter = req.user.role === 'teacher' ? 'WHERE created_by = $1' : '';
+    const queryValues = req.user.role === 'teacher' ? [req.user.id] : [];
     const results = await pool.query(
       `SELECT * FROM (${resultSelect}) AS ranked_results
+       ${teacherFilter}
        ORDER BY updated_at DESC
-       LIMIT 500`
+       LIMIT 500`,
+      queryValues
     );
     return res.json(results.rows);
   } catch (err) {
@@ -185,13 +191,14 @@ router.get('/', ...adminOnly, async (req, res) => {
   }
 });
 
-router.post('/', ...adminOnly, async (req, res) => {
+router.post('/', ...resultManagerAccess, async (req, res) => {
   const validation = validateResult(req.body);
   if (validation.error) {
     return res.status(400).json({ error: validation.error });
   }
 
-  const { studentId, programCode, academicYear, term, remarks, isPublished, subjects } = validation.value;
+  const { studentId, programCode, academicYear, term, remarks, subjects } = validation.value;
+  const isPublished = req.user.role === 'admin' && validation.value.isPublished;
   const client = await pool.connect();
 
   try {
@@ -221,9 +228,14 @@ router.post('/', ...adminOnly, async (req, res) => {
          is_published = EXCLUDED.is_published,
          updated_by = EXCLUDED.updated_by,
          updated_at = CURRENT_TIMESTAMP
+       WHERE $8 = 'admin' OR student_results.created_by = $7
        RETURNING id`,
-      [studentId, programCode, academicYear, term, remarks, isPublished, req.user.id]
+      [studentId, programCode, academicYear, term, remarks, isPublished, req.user.id, req.user.role]
     );
+    if (saved.rows.length === 0) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'Only administrators can replace another teacher’s result' });
+    }
     const resultId = saved.rows[0].id;
 
     await client.query('DELETE FROM student_result_subjects WHERE result_id = $1', [resultId]);

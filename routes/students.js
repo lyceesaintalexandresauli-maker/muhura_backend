@@ -4,6 +4,7 @@ const pool = require('../db');
 const { authenticateToken, authorizeRoles } = require('./auth');
 
 const adminOnly = [authenticateToken, authorizeRoles('admin')];
+const studentListAccess = [authenticateToken, authorizeRoles('admin', 'teacher')];
 const classLevelsByProgram = {
   SWD: ['L3SWD', 'L4SWDA', 'L4SWDB', 'L5SWD'],
   SOD: ['L3', 'L4SOD A', 'L4SOD B', 'L5', 'L3SWD', 'L4SWDA', 'L4SWDB', 'L5SWD'],
@@ -29,9 +30,12 @@ const validateClass = (department, classLevel) => {
 };
 
 // Admin: get all students
-router.get('/', ...adminOnly, async (req, res) => {
+router.get('/', ...studentListAccess, async (req, res) => {
   try {
-    const result = await pool.query('SELECT * FROM students ORDER BY created_at DESC');
+    const columns = req.user.role === 'admin'
+      ? '*'
+      : 'id, student_code, first_name, last_name, class_level, department, is_active, created_at';
+    const result = await pool.query(`SELECT ${columns} FROM students ORDER BY created_at DESC`);
     res.json(result.rows);
   } catch (err) {
     console.error(err);
