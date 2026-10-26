@@ -34,6 +34,7 @@ CREATE TABLE events (
   description TEXT,
   category VARCHAR(50),
   image_path VARCHAR(500),
+  video_url VARCHAR(2048),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

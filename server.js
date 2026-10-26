@@ -160,6 +160,7 @@ const timetablesRoutes = require('./routes/timetables');
 const galleryRoutes = require('./routes/gallery');
 const schoolWorkersRoutes = require('./routes/schoolWorkers');
 const resultsRoutes = require('./routes/results');
+const resultImportRoutes = require('./routes/resultImport');
 const chatRoutes = require('./routes/chat');
 const { router: authRoutes } = require('./routes/auth');
 
@@ -178,6 +179,7 @@ app.use('/api/timetables', timetablesRoutes);
 app.use('/api/gallery', galleryRoutes);
 app.use('/api/school-workers', schoolWorkersRoutes);
 app.use('/api/results', resultsRoutes);
+app.use('/api/result-import', resultImportRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/auth', authRoutes);
 

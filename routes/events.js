@@ -71,12 +71,13 @@ router.post('/', ...adminOnly, async (req, res) => {
     const description = cleanText(req.body.description, 5000);
     const category = cleanText(req.body.category, 80);
     const imagePath = cleanText(req.body.image_path, 2048);
+    const videoUrl = cleanText(req.body.video_url, 2048) || null;
     if (!title || !description) {
       return res.status(400).json({ error: 'title and description are required' });
     }
     const result = await pool.query(
-      'INSERT INTO events (title, description, category, image_path) VALUES ($1, $2, $3, $4) RETURNING *',
-      [title, description, category || null, imagePath || null]
+      'INSERT INTO events (title, description, category, image_path, video_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [title, description, category || null, imagePath || null, videoUrl]
     );
     return res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -95,12 +96,15 @@ router.put('/:id', ...adminOnly, async (req, res) => {
     const description = cleanText(req.body.description, 5000);
     const category = cleanText(req.body.category, 80);
     const imagePath = cleanText(req.body.image_path, 2048);
+    const videoUrl = req.body.video_url === undefined
+      ? null
+      : cleanText(req.body.video_url, 2048) || null;
     if (!title || !description) {
       return res.status(400).json({ error: 'title and description are required' });
     }
     const result = await pool.query(
-      'UPDATE events SET title = $1, description = $2, category = $3, image_path = $4 WHERE id = $5 RETURNING *',
-      [title, description, category || null, imagePath || null, id]
+      'UPDATE events SET title = $1, description = $2, category = $3, image_path = $4, video_url = COALESCE($5, video_url) WHERE id = $6 RETURNING *',
+      [title, description, category || null, imagePath || null, videoUrl, id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Event not found' });
