@@ -15,8 +15,8 @@ const parsePositiveInt = (value) => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 };
 const extensionMap = {
-  image: new Set(['.jpeg', '.jpg', '.png', '.gif', '.webp']),
-  video: new Set(['.mp4', '.avi', '.mov', '.mkv', '.webm']),
+  image: new Set(['.jpeg', '.jpg', '.png', '.gif', '.webp', '.svg']),
+  video: new Set(['.mp4', '.avi', '.mov', '.mkv', '.webm', '.ogg', '.m4v']),
   document: new Set(['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx'])
 };
 
@@ -58,7 +58,7 @@ const createStoredFilename = (originalname) =>
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: 50 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const type = getFileType(file);
     if (type) return cb(null, true);
@@ -134,35 +134,47 @@ const removeStoredFile = async (storedRecord) => {
   }
 };
 
-router.post('/', ...adminOnly, upload.single('file'), async (req, res) => {
+const getUploadedFile = (req) => {
+  if (req.file) return req.file;
+  const filesMap = req.files || {};
+  return filesMap.file?.[0] || filesMap.video?.[0] || filesMap.media?.[0] || filesMap.image?.[0] || null;
+};
+
+router.post('/', ...adminOnly, upload.fields([
+  { name: 'file', maxCount: 1 },
+  { name: 'video', maxCount: 1 },
+  { name: 'media', maxCount: 1 },
+  { name: 'image', maxCount: 1 }
+]), async (req, res) => {
   try {
-    if (!req.file) {
+    const selectedFile = getUploadedFile(req);
+    if (!selectedFile) {
       return res.status(400).json({ error: 'No file uploaded' });
     }
 
-    const type = getFileType(req.file);
+    const type = getFileType(selectedFile);
     if (!type) {
       return res.status(400).json({ error: 'Invalid file type' });
     }
 
     const targetFolder = getFolderByType(type);
-    const storedFilename = createStoredFilename(req.file.originalname);
+    const storedFilename = createStoredFilename(selectedFile.originalname);
     let persisted;
 
     if (canUseSupabaseStorage()) {
       try {
-        persisted = await persistToSupabaseStorage(req.file, targetFolder, storedFilename);
+        persisted = await persistToSupabaseStorage(selectedFile, targetFolder, storedFilename);
       } catch (storageError) {
         console.error('Supabase storage upload failed, falling back to local disk:', storageError.message);
-        persisted = persistLocally(req.file, targetFolder, storedFilename);
+        persisted = persistLocally(selectedFile, targetFolder, storedFilename);
       }
     } else {
-      persisted = persistLocally(req.file, targetFolder, storedFilename);
+      persisted = persistLocally(selectedFile, targetFolder, storedFilename);
     }
 
     const result = await pool.query(
       'INSERT INTO files (filename, original_name, path, type, size, uploaded_by) VALUES ($1, $2, $3, $4, $5, $6) RETURNING *',
-      [persisted.filename, req.file.originalname, persisted.path, type, req.file.size, req.user.id]
+      [persisted.filename, selectedFile.originalname, persisted.path, type, selectedFile.size, req.user.id]
     );
 
     return res.status(201).json({
