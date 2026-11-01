@@ -10,6 +10,15 @@ const adminOnly = [authenticateToken, authorizeRoles('admin')];
 
 const uploadsRoot = path.join(__dirname, '../uploads');
 const storageBucket = process.env.SUPABASE_STORAGE_BUCKET || 'uploads';
+const DEFAULT_MAX_UPLOAD_SIZE_MB = 50;
+const configuredMaxUploadSizeMb = process.env.MAX_UPLOAD_SIZE_MB
+  ? Number(process.env.MAX_UPLOAD_SIZE_MB)
+  : DEFAULT_MAX_UPLOAD_SIZE_MB;
+if (!Number.isInteger(configuredMaxUploadSizeMb) || configuredMaxUploadSizeMb < 1 || configuredMaxUploadSizeMb > 250) {
+  throw new Error('MAX_UPLOAD_SIZE_MB must be a whole number between 1 and 250');
+}
+const maxUploadSizeMb = configuredMaxUploadSizeMb;
+const maxUploadSizeBytes = maxUploadSizeMb * 1024 * 1024;
 const extensionMap = {
   image: new Set(['.jpeg', '.jpg', '.png', '.gif', '.webp']),
   video: new Set(['.mp4', '.avi', '.mov', '.mkv', '.webm']),
@@ -54,13 +63,30 @@ const createStoredFilename = (originalname) =>
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 },
+  limits: { fileSize: maxUploadSizeBytes },
   fileFilter: (req, file, cb) => {
     const type = getFileType(file);
     if (type) return cb(null, true);
     return cb(new Error('Invalid file type'));
   }
 });
+const handleUpload = (req, res, next) => {
+  upload.single('file')(req, res, (error) => {
+    if (!error) return next();
+    if (error instanceof multer.MulterError && error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(413).json({
+        error: `File is too large. The maximum upload size is ${maxUploadSizeMb} MB. Compress the video or increase MAX_UPLOAD_SIZE_MB and the storage bucket limit.`,
+        code: 'UPLOAD_FILE_TOO_LARGE',
+        max_upload_size_mb: maxUploadSizeMb
+      });
+    }
+    if (error instanceof multer.MulterError) {
+      return res.status(400).json({ error: `Upload failed: ${error.message}`, code: error.code });
+    }
+    console.warn('File upload rejected:', error.message);
+    return res.status(415).json({ error: error.message || 'Unsupported file type', code: 'UPLOAD_UNSUPPORTED_FILE_TYPE' });
+  });
+};
 
 const canUseSupabaseStorage = () => Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY);
 
@@ -130,7 +156,8 @@ const removeStoredFile = async (storedRecord) => {
   }
 };
 
-router.post('/', ...adminOnly, upload.single('file'), async (req, res) => {
+router.post('/', ...adminOnly, handleUpload, async (req, res) => {
+  let persisted;
   try {
     if (!req.file) {
       return res.status(400).json({ error: 'No file uploaded' });
@@ -143,14 +170,19 @@ router.post('/', ...adminOnly, upload.single('file'), async (req, res) => {
 
     const targetFolder = getFolderByType(type);
     const storedFilename = createStoredFilename(req.file.originalname);
-    let persisted;
 
     if (canUseSupabaseStorage()) {
       try {
         persisted = await persistToSupabaseStorage(req.file, targetFolder, storedFilename);
       } catch (storageError) {
-        console.error('Supabase storage upload failed, falling back to local disk:', storageError.message);
-        persisted = persistLocally(req.file, targetFolder, storedFilename);
+        console.error('Supabase storage upload failed:', storageError);
+        const statusCode = Number(storageError.statusCode) === 413 ? 413 : 502;
+        return res.status(statusCode).json({
+          error: statusCode === 413
+            ? 'The storage bucket rejected this file because it exceeds the bucket upload limit. Increase the Supabase bucket limit or compress the video.'
+            : 'The file could not be saved to shared storage. Check Supabase Storage configuration and try again.',
+          code: statusCode === 413 ? 'STORAGE_FILE_TOO_LARGE' : 'STORAGE_UPLOAD_FAILED'
+        });
       }
     } else {
       persisted = persistLocally(req.file, targetFolder, storedFilename);
@@ -169,8 +201,19 @@ router.post('/', ...adminOnly, upload.single('file'), async (req, res) => {
       }
     });
   } catch (err) {
-    console.error(err);
-    return res.status(500).json({ error: 'Server error' });
+    console.error('File upload failed:', err);
+    if (persisted) {
+      try {
+        await removeStoredFile(persisted);
+      } catch (cleanupError) {
+        console.error('Failed to clean up uploaded file after metadata error:', cleanupError);
+      }
+      return res.status(500).json({
+        error: 'The file was received, but the backend could not save its upload record. Please retry the upload.',
+        code: 'UPLOAD_METADATA_SAVE_FAILED'
+      });
+    }
+    return res.status(500).json({ error: 'The backend could not store this file. Check server storage configuration and try again.' });
   }
 });
 
