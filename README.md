@@ -122,7 +122,7 @@ Node.js and PostgreSQL backend for the Lycee Saint Alexandre Sauli de Muhura sch
 - `GET /api/site/bootstrap?page=<page>` - settings + navigation + optional page content
 
 ### File Uploads
-- `POST /api/uploads` - Upload file
+- `POST /api/uploads` - Upload an image, video or document as `multipart/form-data` with field `file` (default maximum 50 MB; configure `MAX_UPLOAD_SIZE_MB`, 1-250). Upload size errors return HTTP 413 with the configured limit. Supabase Storage bucket limits must be at least as large as this setting.
 - `GET /api/uploads` - Get all files (admin only)
 - `GET /api/uploads/:id` - Get file metadata (admin only)
 - `DELETE /api/uploads/:id` - Delete file (admin only, removes file from disk)
