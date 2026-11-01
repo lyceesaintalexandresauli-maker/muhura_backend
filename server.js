@@ -80,7 +80,7 @@ app.use('/api/result-import', (req, res, next) => {
   if (req.method !== 'POST' || req.path.replace(/\/+$/, '') !== '') return next();
   return express.json({ limit: '5mb' })(req, res, next);
 });
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '1mb' }));
 app.use(
   rateLimit({
@@ -139,6 +139,29 @@ app.use((req, res, next) => {
   }
   return next();
 });
+app.use('/api', (req, res, next) => {
+  const endResponse = res.end;
+  res.end = function (...args) {
+    const method = String(req.method || '').toUpperCase();
+    if (req.user && !['GET', 'HEAD', 'OPTIONS'].includes(method)) {
+      pool.query(
+        `INSERT INTO admin_audit_logs (actor_id, actor_role, action, resource, resource_id, status_code, request_id)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+        [
+          req.user.id,
+          req.user.role,
+          method,
+          String(req.originalUrl || req.path).split('?')[0].slice(0, 120),
+          req.params?.id ? String(req.params.id).slice(0, 120) : null,
+          res.statusCode,
+          String(req.headers['x-request-id'] || '').slice(0, 100) || null,
+        ]
+      ).catch((error) => console.error('[Audit] Failed to record request:', error));
+    }
+    return endResponse.apply(this, args);
+  };
+  return next();
+});
 
 (async () => {
   try {
@@ -166,6 +189,8 @@ const schoolWorkersRoutes = require('./routes/schoolWorkers');
 const resultsRoutes = require('./routes/results');
 const resultImportRoutes = require('./routes/resultImport');
 const chatRoutes = require('./routes/chat');
+const academicsRoutes = require('./routes/academics');
+const schoolAdminRoutes = require('./routes/schoolAdmin');
 const { router: authRoutes } = require('./routes/auth');
 
 app.use('/api/content', contentRoutes);
@@ -185,6 +210,8 @@ app.use('/api/school-workers', schoolWorkersRoutes);
 app.use('/api/results', resultsRoutes);
 app.use('/api/result-import', resultImportRoutes);
 app.use('/api/chat', chatRoutes);
+app.use('/api/academics', academicsRoutes);
+app.use('/api/school-admin', schoolAdminRoutes);
 app.use('/api/auth', authRoutes);
 
 app.get('/', (req, res) => {

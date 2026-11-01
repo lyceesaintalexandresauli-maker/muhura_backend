@@ -13,7 +13,7 @@ const {
 } = require('../supabase');
 
 const router = express.Router();
-const validRoles = new Set(['admin', 'teacher', 'secretary', 'dos', 'parent']);
+const validRoles = new Set(['admin', 'teacher', 'secretary', 'dos', 'parent', 'student']);
 const staffRoles = new Set(['admin', 'teacher', 'secretary', 'dos']);
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const usernameRegex = /^[a-zA-Z0-9_.-]{3,50}$/;

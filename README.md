@@ -15,7 +15,7 @@ Node.js and PostgreSQL backend for the Lycee Saint Alexandre Sauli de Muhura sch
 
 4. Set up PostgreSQL database:
    - Create a database named `school_db`
-   - Run `schema.sql` to create tables, or run any new migration files in `migrations/` against an existing database
+   - Run `schema.sql` to create the base tables, then apply the required migration files in `migrations/` (including `2026-11-01_academic_assessments.sql`), or run all migrations against an existing database
 
 5. Configure environment variables:
    - Copy `.env` and update with your database credentials
@@ -77,13 +77,29 @@ Node.js and PostgreSQL backend for the Lycee Saint Alexandre Sauli de Muhura sch
 - `POST /api/auth/parent/register` - Create a parent account with a name, email, and password (minimum 8 characters)
 - `GET /api/results` - Admin lists student results, including drafts
 - `POST /api/results` - Admin creates/updates marks and chooses whether to publish the result
-- `POST /api/result-import/map-headers` - Admin-only AI suggestions for spreadsheet headings (column headings only; requires `AI_API_BASE_URL`, `AI_API_KEY`, and `AI_MODEL`)
-- `POST /api/result-import` - Admin-only atomic import that matches or creates students and saves their results as drafts (up to 500 rows; 5 MB request limit)
 - `POST /api/results/lookup` - Signed-in parent searches published results using the student's full name and program (`SWD`, `NIT`, `CSA`, `ACC`, or `FAD`)
 - Run `migrations/2026-10-20_student_results.sql` on an existing database before deploying the updated backend. New databases can use `schema.sql`.
 - If parent sign-up reports `PARENT_ROLE_MIGRATION_REQUIRED`, apply that migration to the production database before retrying registration.
 - Parent account creation requires backend `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and database connection variables. The service-role key is server-only and must never be set in a frontend environment.
-- Spreadsheet AI suggestions only receive headings; the student rows are validated and imported by the school backend after the administrator confirms the preview.
+- `POST /api/result-import/map-headers` - Admin-only AI suggestions for spreadsheet headings (column headings only; requires `AI_API_BASE_URL`, `AI_API_KEY`, and `AI_MODEL`).
+- `POST /api/result-import` - Admin-only atomic import that matches or creates students and saves their results as drafts (up to 500 rows; 5 MB request limit).
+
+### Academic Structure and Assessments
+- Apply `migrations/2026-11-01_academic_assessments.sql` before using the academic management panel.
+- `GET /api/academics/structure` - Admin loads academic years, terms, programs, classes, subjects, class-subject links and teacher assignments.
+- `/api/academics/years`, `/terms`, `/programs`, `/classes`, `/subjects`, `/classSubjects`, `/assignments` - Admin-only CRUD for academic setup.
+- `GET /api/academics/exams` - List examinations (teachers see only their assigned class subjects).
+- `POST /api/academics/exams` - Admin creates a CAT, practical, final or other exam with a subject weight; weights for a subject and term cannot exceed 100%.
+- `PUT /api/academics/exams/:id` - Admin updates an open examination; class subject and term cannot change after marks are recorded.
+- `GET /api/academics/exams/:id/marks` - Load active students and their marks for an assigned class subject.
+- `POST /api/academics/exams/:id/marks` - Save validated marks and absences as drafts.
+- `POST /api/academics/exams/:id/submit` - Submit complete marks for approval.
+- `POST /api/academics/exams/:id/approve` - Admin approves submitted marks.
+- `POST /api/academics/exams/:id/publish` - Admin publishes approved marks.
+- `POST /api/academics/exams/:id/reopen` - Admin reopens marks for corrections.
+- `GET /api/academics/results?class_subject_id=<id>&term_id=<id>` - Calculate weighted subject marks, percentage, grade, pass/fail status and tie-aware rankings. The existing admin grading thresholds are reused. Results are marked published only when all exams for the subject and term have published marks.
+- Teachers can edit and submit marks only for class subjects assigned to their active teacher account. Academic structure changes and approval/publication actions are admin-only.
+- Spreadsheet AI suggestions only receive headings; student rows are validated and imported by the school backend after the administrator confirms the preview.
 
 ### Departments
 - `GET /api/departments` - Get all departments

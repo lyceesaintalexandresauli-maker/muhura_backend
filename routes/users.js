@@ -5,7 +5,7 @@ const { getSupabaseAdminClient, canUseSupabaseAdminClient, getSupabaseConfigStat
 
 const router = express.Router();
 const adminOnly = [authenticateToken, authorizeRoles('admin')];
-const validRoles = new Set(['admin', 'teacher', 'secretary', 'dos']);
+const validRoles = new Set(['admin', 'teacher', 'secretary', 'dos', 'parent', 'student']);
 const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const usernameRegex = /^[a-zA-Z0-9_.-]{3,50}$/;
 
@@ -54,7 +54,7 @@ router.post('/', ...adminOnly, async (req, res) => {
       return res.status(400).json({ error: 'Invalid email format' });
     }
     if (!validRoles.has(role)) {
-      return res.status(400).json({ error: 'Invalid role. Allowed roles: admin, teacher, secretary, dos' });
+      return res.status(400).json({ error: 'Invalid role. Allowed roles: admin, teacher, secretary, dos, parent, student' });
     }
     if (String(password).length < 8) {
       return res.status(400).json({ error: 'Password must be at least 8 characters long' });
@@ -119,7 +119,7 @@ router.put('/:id', ...adminOnly, async (req, res) => {
       return res.status(400).json({ error: 'Invalid email format' });
     }
     if (!validRoles.has(role)) {
-      return res.status(400).json({ error: 'Invalid role. Allowed roles: admin, teacher, secretary, dos' });
+      return res.status(400).json({ error: 'Invalid role. Allowed roles: admin, teacher, secretary, dos, parent, student' });
     }
 
     const normalizedEmail = String(email).trim().toLowerCase();
