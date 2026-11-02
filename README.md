@@ -86,18 +86,20 @@ Node.js and PostgreSQL backend for the Lycee Saint Alexandre Sauli de Muhura sch
 
 ### Academic Structure and Assessments
 - Apply `migrations/2026-11-01_academic_assessments.sql` before using the academic management panel.
+- Apply `migrations/2026-11-03_assessment_details.sql` after `2026-11-02_school_admin_operations.sql` to enable assessment dates, oral and supplementary exam types.
 - `GET /api/academics/structure` - Admin loads academic years, terms, programs, classes, subjects, class-subject links and teacher assignments.
 - `/api/academics/years`, `/terms`, `/programs`, `/classes`, `/subjects`, `/classSubjects`, `/assignments` - Admin-only CRUD for academic setup.
 - `GET /api/academics/exams` - List examinations (teachers see only their assigned class subjects).
-- `POST /api/academics/exams` - Admin creates a CAT, practical, final or other exam with a subject weight; weights for a subject and term cannot exceed 100%.
+- `POST /api/academics/exams` - Admin creates a CAT, practical, final, oral, supplementary or other exam with an optional date and subject weight; weights for a subject and term cannot exceed 100%.
 - `PUT /api/academics/exams/:id` - Admin updates an open examination; class subject and term cannot change after marks are recorded.
 - `GET /api/academics/exams/:id/marks` - Load active students and their marks for an assigned class subject.
 - `POST /api/academics/exams/:id/marks` - Save validated marks and absences as drafts.
+- `POST /api/academics/exams/:id/marks/import` - Admins and assigned teachers import draft marks from CSV/XLSX with `student_code`, `score`, and optional `is_absent` columns (maximum 5 MB and 1,000 rows).
 - `POST /api/academics/exams/:id/submit` - Submit complete marks for approval.
 - `POST /api/academics/exams/:id/approve` - Admin approves submitted marks.
 - `POST /api/academics/exams/:id/publish` - Admin publishes approved marks.
 - `POST /api/academics/exams/:id/reopen` - Admin reopens marks for corrections.
-- `GET /api/academics/results?class_subject_id=<id>&term_id=<id>` - Calculate weighted subject marks, percentage, grade, pass/fail status and tie-aware rankings. The existing admin grading thresholds are reused. Results are marked published only when all exams for the subject and term have published marks.
+- `GET /api/academics/results?class_subject_id=<id>&term_id=<id>` - Calculate weighted subject marks, complete-student percentages, grades and pass/fail status from the configurable grade scale, and tie-aware class rankings. Results are marked published only when all exams for the subject and term have published marks.
 - Teachers can edit and submit marks only for class subjects assigned to their active teacher account. Academic structure changes and approval/publication actions are admin-only.
 - Spreadsheet AI suggestions only receive headings; student rows are validated and imported by the school backend after the administrator confirms the preview.
 

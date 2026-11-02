@@ -1,8 +1,22 @@
 const express = require('express');
+const ExcelJS = require('exceljs');
+const multer = require('multer');
+const { Readable } = require('stream');
 const pool = require('../db');
 const { authenticateToken, authorizeRoles } = require('./auth');
 
 const router = express.Router();
+const markImport = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
+  fileFilter: (req, file, callback) => {
+    const extension = file.originalname.split('.').pop()?.toLowerCase();
+    if (!['csv', 'xlsx'].includes(extension)) {
+      return callback(new Error('Marks import supports CSV and XLSX files'));
+    }
+    return callback(null, true);
+  },
+});
 const adminOnly = [authenticateToken, authorizeRoles('admin')];
 const academicAccess = [authenticateToken, authorizeRoles('admin', 'teacher')];
 
@@ -12,6 +26,11 @@ const parseId = (value) => {
 };
 
 const asText = (value) => String(value ?? '').trim();
+const isValidDate = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+};
 
 const configs = {
   years: {
@@ -158,6 +177,47 @@ const handleDatabaseError = (res, error, action) => {
     });
   }
   return res.status(500).json({ error: 'Unable to complete the academic management request' });
+};
+
+const parseMarksUpload = (req, res, next) => markImport.single('file')(req, res, (error) => {
+  if (!error) return next();
+  const status = error instanceof multer.MulterError
+    ? (error.code === 'LIMIT_FILE_SIZE' ? 413 : 400)
+    : 400;
+  return res.status(status).json({ error: error.message || 'Could not read the marks file' });
+});
+
+const readMarksWorkbook = async (file) => {
+  const workbook = new ExcelJS.Workbook();
+  const extension = file.originalname.split('.').pop()?.toLowerCase();
+  if (extension === 'xlsx') await workbook.xlsx.load(file.buffer);
+  else await workbook.csv.read(Readable.from([file.buffer]));
+  const worksheet = workbook.worksheets[0];
+  if (!worksheet || worksheet.rowCount < 2) {
+    throw new Error('Marks file must contain a header and at least one student row');
+  }
+  const headers = worksheet.getRow(1).values.slice(1).map((value) => asText(value).toLowerCase());
+  const requiredHeaders = ['student_code', 'score'];
+  if (requiredHeaders.some((header) => !headers.includes(header))) {
+    throw new Error('Marks file needs student_code and score columns; is_absent is optional');
+  }
+  const records = [];
+  worksheet.eachRow((row, rowNumber) => {
+    if (rowNumber === 1) return;
+    const record = {};
+    headers.forEach((header, index) => {
+      if (!header) return;
+      const cell = row.getCell(index + 1).value;
+      record[header] = cell && typeof cell === 'object' && 'text' in cell ? cell.text : cell;
+    });
+    if (Object.values(record).some((value) => value !== null && value !== undefined && value !== '')) {
+      records.push(record);
+    }
+  });
+  if (!records.length || records.length > 1000) {
+    throw new Error('Marks file must contain between 1 and 1000 student rows');
+  }
+  return records;
 };
 
 const registerCrudRoutes = (path, config) => {
@@ -336,11 +396,15 @@ router.post('/exams', ...adminOnly, async (req, res) => {
   const type = asText(req.body?.type).toLowerCase();
   const weight = Number(req.body?.weight);
   const maxScore = Number(req.body?.max_score);
+  const examDate = req.body?.exam_date ? asText(req.body.exam_date) : null;
   if (!classSubjectId || !termId || !title || title.length > 120) {
     return res.status(400).json({ error: 'Choose a class subject and term, and enter a title up to 120 characters' });
   }
-  if (!['cat', 'practical', 'final', 'other'].includes(type)) {
-    return res.status(400).json({ error: 'Examination type must be CAT, practical, final or other' });
+  if (!['cat', 'practical', 'final', 'oral', 'supplementary', 'other'].includes(type)) {
+    return res.status(400).json({ error: 'Examination type must be CAT, practical, final, oral, supplementary or other' });
+  }
+  if (examDate && !isValidDate(examDate)) {
+    return res.status(400).json({ error: 'Examination date must be a valid YYYY-MM-DD date' });
   }
   if (!Number.isFinite(weight) || weight <= 0 || weight > 100 || !Number.isFinite(maxScore) || maxScore <= 0) {
     return res.status(400).json({ error: 'Weight must be 0 to 100 and maximum marks must be positive' });
@@ -372,10 +436,10 @@ router.post('/exams', ...adminOnly, async (req, res) => {
       return res.status(400).json({ error: 'The combined examination weights for this subject and term cannot exceed 100%' });
     }
     const result = await client.query(
-      `INSERT INTO examinations (class_subject_id, term_id, title, type, weight, max_score, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO examinations (class_subject_id, term_id, title, type, weight, max_score, exam_date, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
        RETURNING *`,
-      [classSubjectId, termId, title, type, weight, maxScore, req.user.id]
+      [classSubjectId, termId, title, type, weight, maxScore, examDate, req.user.id]
     );
     await client.query('COMMIT');
     return res.status(201).json(result.rows[0]);
@@ -395,11 +459,15 @@ router.put('/exams/:id', ...adminOnly, async (req, res) => {
   const type = asText(req.body?.type).toLowerCase();
   const weight = Number(req.body?.weight);
   const maxScore = Number(req.body?.max_score);
+  const examDate = req.body?.exam_date ? asText(req.body.exam_date) : null;
   if (!examId || !classSubjectId || !termId || !title || title.length > 120) {
     return res.status(400).json({ error: 'Choose a valid class subject and term, and enter a title up to 120 characters' });
   }
-  if (!['cat', 'practical', 'final', 'other'].includes(type)) {
-    return res.status(400).json({ error: 'Examination type must be CAT, practical, final or other' });
+  if (!['cat', 'practical', 'final', 'oral', 'supplementary', 'other'].includes(type)) {
+    return res.status(400).json({ error: 'Examination type must be CAT, practical, final, oral, supplementary or other' });
+  }
+  if (examDate && !isValidDate(examDate)) {
+    return res.status(400).json({ error: 'Examination date must be a valid YYYY-MM-DD date' });
   }
   if (!Number.isFinite(weight) || weight <= 0 || weight > 100 || !Number.isFinite(maxScore) || maxScore <= 0) {
     return res.status(400).json({ error: 'Weight must be positive and no more than 100; maximum marks must be positive' });
@@ -461,10 +529,10 @@ router.put('/exams/:id', ...adminOnly, async (req, res) => {
     const updated = await client.query(
       `UPDATE examinations
        SET class_subject_id = $1, term_id = $2, title = $3, type = $4, weight = $5,
-           max_score = $6, updated_at = CURRENT_TIMESTAMP
-       WHERE id = $7 AND status = 'open'
+           max_score = $6, exam_date = $7, updated_at = CURRENT_TIMESTAMP
+       WHERE id = $8 AND status = 'open'
        RETURNING *`,
-      [classSubjectId, termId, title, type, weight, maxScore, examId]
+      [classSubjectId, termId, title, type, weight, maxScore, examDate, examId]
     );
     if (!updated.rowCount) {
       await client.query('ROLLBACK');
@@ -599,6 +667,100 @@ router.post('/exams/:id/marks', ...academicAccess, async (req, res) => {
   } catch (error) {
     await client.query('ROLLBACK');
     return handleDatabaseError(res, error, 'Save examination marks');
+  } finally {
+    client.release();
+  }
+});
+
+router.post('/exams/:id/marks/import', ...academicAccess, parseMarksUpload, async (req, res) => {
+  const examId = parseId(req.params.id);
+  if (!examId) return res.status(400).json({ error: 'Choose a valid examination id' });
+  if (!req.file) return res.status(400).json({ error: 'Choose a CSV or XLSX marks file' });
+  let records;
+  try {
+    records = await readMarksWorkbook(req.file);
+  } catch (error) {
+    return res.status(400).json({ error: error.message || 'Marks file could not be parsed' });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const exam = await getExam(client, examId);
+    if (!exam) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({ error: 'Examination not found' });
+    }
+    if (!await examAccess(client, req.user, exam)) {
+      await client.query('ROLLBACK');
+      return res.status(403).json({ error: 'You are not assigned to this class subject' });
+    }
+    if (exam.status !== 'open') {
+      await client.query('ROLLBACK');
+      return res.status(409).json({ error: 'Marks can only be imported while the examination is open' });
+    }
+    const roster = await client.query(
+      `SELECT id, student_code
+       FROM students
+       WHERE is_active = TRUE AND (
+         UPPER(TRIM(department)) = UPPER(TRIM($1))
+         OR (UPPER(TRIM($1)) IN ('SWD', 'SOD') AND UPPER(TRIM(department)) IN ('SWD', 'SOD'))
+       )
+         AND REGEXP_REPLACE(UPPER(TRIM(class_level)), '[^A-Z0-9]', '', 'g')
+             = REGEXP_REPLACE(UPPER(TRIM($2)), '[^A-Z0-9]', '', 'g')`,
+      [exam.program_code, exam.level]
+    );
+    const studentsByCode = new Map(roster.rows.map((student) => [String(student.student_code).trim().toUpperCase(), Number(student.id)]));
+    const seenStudents = new Set();
+    const cleanMarks = [];
+    for (const [index, record] of records.entries()) {
+      const code = asText(record.student_code).toUpperCase();
+      const studentId = studentsByCode.get(code);
+      const absent = ['true', '1', 'yes', 'absent'].includes(asText(record.is_absent).toLowerCase());
+      const score = absent ? null : Number(record.score);
+      if (!studentId) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Student code on file row ${index + 2} is not in this active class` });
+      }
+      if (seenStudents.has(studentId)) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Student code ${code} appears more than once in the marks file` });
+      }
+      if (!absent && (
+        record.score === null
+        || record.score === undefined
+        || asText(record.score) === ''
+        || !Number.isFinite(score)
+        || score < 0
+        || score > Number(exam.max_score)
+      )) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({ error: `Enter a mark from 0 to ${exam.max_score}, or mark the student absent (file row ${index + 2})` });
+      }
+      seenStudents.add(studentId);
+      cleanMarks.push({ studentId, score, absent });
+    }
+    for (const mark of cleanMarks) {
+      const saved = await client.query(
+        `INSERT INTO examination_marks (examination_id, student_id, score, is_absent, entered_by, status)
+         VALUES ($1, $2, $3, $4, $5, 'draft')
+         ON CONFLICT (examination_id, student_id)
+         DO UPDATE SET score = EXCLUDED.score, is_absent = EXCLUDED.is_absent,
+                       entered_by = EXCLUDED.entered_by, updated_at = CURRENT_TIMESTAMP
+         WHERE examination_marks.status = 'draft'
+         RETURNING id`,
+        [examId, mark.studentId, mark.score, mark.absent, req.user.id]
+      );
+      if (!saved.rowCount) {
+        await client.query('ROLLBACK');
+        return res.status(409).json({ error: 'Submitted or approved marks cannot be overwritten; an administrator must reopen the examination' });
+      }
+    }
+    await client.query('COMMIT');
+    return res.json({ message: 'Marks imported as drafts', imported: cleanMarks.length });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    return handleDatabaseError(res, error, 'Import examination marks');
   } finally {
     client.release();
   }
@@ -754,10 +916,14 @@ router.get('/results', ...academicAccess, async (req, res) => {
   const client = await pool.connect();
   try {
     const classSubject = await client.query(
-      `SELECT cs.id, cs.academic_year_id, c.level, p.code AS program_code
+      `SELECT cs.id, cs.academic_year_id, c.name AS class_name, c.level,
+              p.code AS program_code, p.name AS program_name, s.name AS subject_name,
+              ay.name AS academic_year
        FROM class_subjects cs
        JOIN academic_classes c ON c.id = cs.class_id
        JOIN academic_programs p ON p.id = c.program_id
+       JOIN academic_subjects s ON s.id = cs.subject_id
+       JOIN academic_years ay ON ay.id = cs.academic_year_id
        WHERE cs.id = $1`,
       [classSubjectId]
     );
@@ -798,28 +964,46 @@ router.get('/results', ...academicAccess, async (req, res) => {
          GROUP BY cs.student_id, cs.student_code, cs.first_name, cs.last_name
        ),
        percentages AS (
-         SELECT *, CASE WHEN total_weight > 0 THEN weighted_marks / total_weight * 100 ELSE NULL END AS percentage,
+         SELECT *,
+                CASE WHEN total_weight > 0 AND recorded_exams = (SELECT total FROM exam_counts)
+                  THEN weighted_marks / total_weight * 100 ELSE NULL END AS percentage,
+                (recorded_exams = (SELECT total FROM exam_counts)
+                  AND (SELECT total FROM exam_counts) > 0) AS is_complete,
                 (recorded_exams = (SELECT total FROM exam_counts)
                   AND published_exams = (SELECT total FROM exam_counts)
                   AND (SELECT total FROM exam_counts) > 0) AS is_published
          FROM student_totals
        )
-       SELECT *,
-              CASE
-                WHEN percentage >= 90 THEN 'Wonderful'
-                WHEN percentage >= 80 THEN 'Excellent'
-                WHEN percentage >= 75 THEN 'Very good'
-                WHEN percentage >= 70 THEN 'Good'
-                WHEN percentage IS NOT NULL THEN 'Fail'
-                ELSE NULL
-              END AS grade,
-              CASE WHEN percentage >= 70 THEN TRUE WHEN percentage IS NOT NULL THEN FALSE ELSE NULL END AS passed,
-              CASE WHEN is_published THEN RANK() OVER (
-                ORDER BY CASE WHEN is_published THEN percentage END DESC NULLS LAST
+       SELECT p.*,
+              $5::text AS class_name,
+              $6::text AS program_name,
+              $7::text AS subject_name,
+              $8::text AS academic_year,
+              grade_band.grade,
+              grade_band.remark AS grade_remark,
+              grade_band.is_passing AS passed,
+              CASE WHEN percentage IS NOT NULL AND is_complete THEN RANK() OVER (
+                ORDER BY CASE WHEN is_complete THEN percentage END DESC NULLS LAST
               ) ELSE NULL END AS position
-       FROM percentages
+       FROM percentages p
+       LEFT JOIN LATERAL (
+         SELECT grade, remark, is_passing
+         FROM grade_scale
+         WHERE p.percentage BETWEEN minimum_percentage AND maximum_percentage
+         ORDER BY minimum_percentage DESC, sort_order
+         LIMIT 1
+       ) grade_band ON TRUE
        ORDER BY percentage DESC NULLS LAST, last_name, first_name`,
-      [classSubject.rows[0].program_code, classSubject.rows[0].level, classSubjectId, termId]
+      [
+        classSubject.rows[0].program_code,
+        classSubject.rows[0].level,
+        classSubjectId,
+        termId,
+        classSubject.rows[0].class_name,
+        classSubject.rows[0].program_name,
+        classSubject.rows[0].subject_name,
+        classSubject.rows[0].academic_year,
+      ]
     );
     return res.json(result.rows);
   } catch (error) {
