@@ -28,6 +28,7 @@ const allowedOrigins = (process.env.CORS_ORIGIN || '')
   .map((origin) => origin.trim())
   .filter(Boolean);
 const defaultAllowedOrigins = [
+  'https://admin-panel-frontend.onrender.com',
   'https://fronend-l7hh.onrender.com',
   'https://muhura-web.onrender.com',
   'https://lycee-muhura.onrender.com',
