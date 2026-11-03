@@ -148,6 +148,124 @@ Node.js and PostgreSQL backend for the Lycee Saint Alexandre Sauli de Muhura sch
 - `GET /api/uploads/:id` - Get file metadata (admin only)
 - `DELETE /api/uploads/:id` - Delete file (admin only, removes file from disk)
 
+## Proposed Backend Feature Scope
+
+This section defines the target backend scope for the Admin Panel, Teacher Portal, and Student/Parent Portal. It is a requirements list, **not a statement that every feature is already implemented**. Existing routes documented above cover parts of this scope; verify endpoint behavior, permissions, migrations, and deployment configuration before treating any item as production-ready.
+
+### 1. Authentication and Security
+
+- Register and authenticate users; securely delegate password hashing and verification to the configured authentication provider.
+- Issue and validate JWTs and manage sessions, password recovery, account activation/suspension/deletion, and staff login security.
+- Enforce role-based access control and fine-grained permissions on every protected API.
+- Protect against unauthorized access, injection, abusive request rates, invalid input, and unsafe file uploads.
+- Maintain login history and security events without logging passwords, tokens, or other secrets.
+
+### 2. Student Management APIs
+
+- Create, update, retrieve, search, archive, and export student records.
+- Generate unique admission/student numbers and prevent duplicate records.
+- Assign students to programs, levels, classes, and academic years; record transfers, promotions, repetition, and graduation.
+- Import validated student records from supported spreadsheet formats.
+
+### 3. Teacher and Staff APIs
+
+- Create and manage teacher, administrative, and non-teaching staff profiles and accounts.
+- Store qualifications and responsibilities where required.
+- Assign teachers to subjects/modules, classes, and levels; allow teachers to retrieve only their active assignments.
+- Track changes to assignments and staff responsibilities.
+
+### 4. Academic Structure APIs
+
+- Create and manage academic years, terms, programs, departments, levels, classes, and subjects/modules.
+- Link subjects to applicable programs, levels, and classes.
+- Assign teachers to modules and classes while validating that the referenced records are active and compatible.
+
+### 5. Examination and Marks APIs
+
+- Create CAT, practical, final, oral, supplementary, and other assessment records with dates and configurable weights.
+- Validate marks against assessment limits, handle absent students, and prevent duplicate or invalid entries.
+- Save marks as drafts, submit them for approval, reopen them for authorized corrections, and import validated marks from spreadsheets.
+- Preserve the mark-submission and correction history.
+
+### 6. Results Processing APIs
+
+- Calculate weighted marks, totals, averages, percentages, grades, and pass/fail status using school-configured rules.
+- Calculate subject, class, program, and level rankings, including correct handling of ties.
+- Generate term and annual results and retain historical results for prior academic periods.
+- Make calculations reproducible from the underlying assessment records.
+
+### 7. Results Approval and Publication
+
+- Support submission, review, correction, approval, and publication as permission-controlled workflow stages.
+- Require the appropriate authorized role for each approval and publication action.
+- Support authorized unpublication/correction and retain an auditable history of the actor, action, and timestamp.
+- Expose published results to the intended student/parent audiences only.
+
+### 8. Report Cards and Documents
+
+- Generate downloadable and printable PDFs for report cards, transcripts, performance reports, graduation documents, and certificates.
+- Include school identity, academic period, marks, grades, remarks, and authorized signatures as configured.
+- Store document metadata and protect document downloads with the correct student/parent permissions.
+
+### 9. Attendance and Discipline APIs
+
+- Record attendance by date and class, including present, absent, and late status; provide attendance reports.
+- Record discipline incidents, conduct, and teacher remarks with appropriate access controls and change history.
+
+### 10. Student and Parent Portal APIs
+
+- Allow students to retrieve only their own published results and permitted documents.
+- Allow parents to retrieve information only for children linked to and verified against their account.
+- Protect private student information and notify users when results or documents become available.
+- **Security requirement:** a parent-facing search by student name/program alone is not sufficient proof of a parent-child relationship; enforce verified linkage before exposing records.
+
+### 11. School Events and Media APIs
+
+- Create, update, publish, and delete school events and announcements.
+- Accept approved image/video formats and sizes, store media in configured backend storage, and enforce upload and retrieval permissions.
+- Serve published event content to public pages while protecting unpublished or private media.
+
+### 12. Notifications APIs
+
+- Notify teachers about assignments and mark-submission deadlines.
+- Notify administrators when marks are submitted and students/parents when results are published.
+- Deliver important school announcements through the configured notification channels and retain delivery status where appropriate.
+
+### 13. Analytics and Reporting APIs
+
+- Provide school-, class-, program-, and subject-level academic statistics and comparisons.
+- Identify top-performing students and students who may need academic support, using configurable and explainable criteria.
+- Scope reports to the requesting user's role and permissions.
+
+### 14. Database Management
+
+- Store and relate student, staff, academic structure, assessment, mark, result, approval, attendance, discipline, and document metadata records in PostgreSQL.
+- Enforce relational integrity, appropriate uniqueness constraints, and transactional updates for multi-step operations.
+- Provide versioned database migrations and tested backup/restore procedures.
+- Keep the database as the source of truth; browser storage is not a permanent or shared store for official academic data.
+- Store uploaded files in configured file/object storage and keep access-controlled metadata in the database.
+
+### 15. System Monitoring and Administration
+
+- Maintain audit logs for important create, update, approve, publish, archive, and delete actions, including actor and timestamp.
+- Validate incoming data consistently and return safe, useful API errors without exposing internal secrets.
+- Apply upload restrictions, monitor API/database health and performance, and support migrations and secure deployment configuration.
+- Protect and monitor secrets; never expose database credentials or service-role keys to frontend clients.
+
+## Backend architecture
+
+The backend is the shared boundary for the applications and owns authorization, validation, business rules, calculations, and persistence:
+
+| Layer | Responsibility |
+| --- | --- |
+| Admin Panel | School administration and academic management through authorized APIs |
+| Teacher Portal | Assigned classes/modules, attendance, and marks entry through teacher-scoped APIs |
+| Student / Parent Portal | Own results, report cards, and academic progress through identity-scoped APIs |
+| Backend API | Authentication, validation, permissions, calculations, workflow, and audit history |
+| PostgreSQL and file storage | Authoritative records, relationships, documents, images, and videos |
+
+All official academic records must be written to and retrieved from the backend database. The frontend may cache data for usability, but a browser cache or `localStorage` must never be treated as the authoritative record.
+
 ## File Storage
 
 Images, videos, and documents are stored in `uploads/` and served at `/uploads/...`.
