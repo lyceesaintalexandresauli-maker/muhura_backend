@@ -48,7 +48,7 @@ router.post('/', ...adminOnly, async (req, res) => {
       return res.status(400).json({ error: 'username, email, password and role are required' });
     }
     if (!usernameRegex.test(String(username))) {
-      return res.status(400).json({ error: 'Invalid username format' });
+      return res.status(400).json({ error: 'Invalid username format. Use 3–50 characters: letters, numbers, dot (.), underscore (_) or hyphen (-) only. Example: teacher.jean' });
     }
     if (!emailRegex.test(String(email).trim().toLowerCase())) {
       return res.status(400).json({ error: 'Invalid email format' });
@@ -113,7 +113,7 @@ router.put('/:id', ...adminOnly, async (req, res) => {
       return res.status(400).json({ error: 'username, email, role and is_active are required' });
     }
     if (!usernameRegex.test(String(username))) {
-      return res.status(400).json({ error: 'Invalid username format' });
+      return res.status(400).json({ error: 'Invalid username format. Use 3–50 characters: letters, numbers, dot (.), underscore (_) or hyphen (-) only. Example: teacher.jean' });
     }
     if (!emailRegex.test(String(email).trim().toLowerCase())) {
       return res.status(400).json({ error: 'Invalid email format' });
