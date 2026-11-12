@@ -324,6 +324,151 @@ router.post('/modules', ...adminOnly, async (req, res) => {
   }
 });
 
+/**
+ * Bulk-assign multiple modules to one teacher for the same class / year / term.
+ * Already-assigned modules (same code + class + year + term) are skipped and
+ * treated as disabled for further assignment.
+ */
+router.post('/modules/bulk', ...adminOnly, async (req, res) => {
+  const teacherId = Number(req.body?.teacher_id);
+  const programCode = cleanText(req.body?.program_code, 10).toUpperCase();
+  const classLevel = cleanText(req.body?.class_level, 30).toUpperCase();
+  const academicYear = cleanText(req.body?.academic_year, 20);
+  const term = cleanText(req.body?.term, 30);
+  const modules = Array.isArray(req.body?.modules) ? req.body.modules : [];
+  const weights = parseWeights({
+    cat_weight: req.body?.cat_weight ?? 30,
+    practical_weight: req.body?.practical_weight ?? 20,
+    exam_weight: req.body?.exam_weight ?? 50,
+  });
+
+  if (!Number.isInteger(teacherId) || teacherId < 1) {
+    return res.status(400).json({ error: 'Choose an active teacher account.' });
+  }
+  if (!classesByProgram[programCode]?.includes(classLevel)) {
+    return res.status(400).json({ error: 'Choose a valid class for the selected programme.' });
+  }
+  if (!validYear(academicYear)) {
+    return res.status(400).json({ error: 'Academic year must look like 2026 or 2026-2027.' });
+  }
+  if (!term) return res.status(400).json({ error: 'Choose an academic term.' });
+  if (weights.error) return res.status(400).json({ error: weights.error });
+  if (!modules.length) {
+    return res.status(400).json({ error: 'Select at least one module to assign.' });
+  }
+
+  const normalized = [];
+  const seenCodes = new Set();
+  for (const item of modules) {
+    const moduleCode = cleanText(item?.module_code, 30).toUpperCase();
+    const moduleName = cleanText(item?.module_name, 120);
+    if (!moduleCode || !/^[A-Z0-9._-]{2,30}$/.test(moduleCode)) {
+      return res.status(400).json({ error: `Invalid module code: ${item?.module_code || '(empty)'}` });
+    }
+    if (!moduleName) {
+      return res.status(400).json({ error: `Module name is required for ${moduleCode}.` });
+    }
+    if (seenCodes.has(moduleCode)) continue;
+    seenCodes.add(moduleCode);
+    normalized.push({ moduleCode, moduleName });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+
+    const teacher = await client.query(
+      `SELECT id, full_name FROM users WHERE id = $1 AND role = 'teacher' AND is_active = TRUE`,
+      [teacherId]
+    );
+    if (!teacher.rows.length) {
+      await client.query('ROLLBACK');
+      return res.status(400).json({ error: 'The selected account is not an active teacher account.' });
+    }
+
+    const created = [];
+    const skipped = [];
+
+    for (const mod of normalized) {
+      const duplicate = await client.query(
+        `SELECT id, teacher_id FROM academic_modules
+         WHERE is_active = TRUE
+           AND UPPER(TRIM(module_code)) = $1
+           AND class_level = $2
+           AND academic_year = $3
+           AND term = $4`,
+        [mod.moduleCode, classLevel, academicYear, term]
+      );
+      if (duplicate.rows.length) {
+        skipped.push({
+          module_code: mod.moduleCode,
+          module_name: mod.moduleName,
+          reason: 'Already assigned for this class and term (disabled for further assignment).',
+          existing_id: duplicate.rows[0].id,
+        });
+        continue;
+      }
+
+      const result = await client.query(
+        `INSERT INTO academic_modules
+          (module_code, module_name, program_code, class_level, teacher_id, academic_year, term,
+           cat_weight, practical_weight, exam_weight, status, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,'draft',$11)
+         RETURNING *`,
+        [
+          mod.moduleCode,
+          mod.moduleName,
+          programCode,
+          classLevel,
+          teacherId,
+          academicYear,
+          term,
+          weights.value.cat,
+          weights.value.practical,
+          weights.value.exam,
+          req.user.id,
+        ]
+      );
+      created.push(result.rows[0]);
+      await writeAudit(client, req.user.id, 'allocate_module', 'academic_module', result.rows[0].id, {
+        module_code: mod.moduleCode,
+        class_level: classLevel,
+        teacher_id: teacherId,
+        bulk: true,
+      });
+    }
+
+    await client.query('COMMIT');
+    return res.status(201).json({
+      message:
+        created.length === 0
+          ? 'No new modules assigned — all selected modules were already allocated (disabled).'
+          : `Assigned ${created.length} module(s) to ${teacher.rows[0].full_name || 'teacher'}.`,
+      teacher_id: teacherId,
+      teacher_name: teacher.rows[0].full_name,
+      class_level: classLevel,
+      academic_year: academicYear,
+      term,
+      created,
+      skipped,
+      created_count: created.length,
+      skipped_count: skipped.length,
+    });
+  } catch (err) {
+    await client.query('ROLLBACK').catch(() => {});
+    console.error('[Academic] Bulk module allocation failed:', err);
+    if (err.code === '42P01') {
+      return res.status(503).json({
+        error: 'Academic tables are not ready. Open Academic Workflow and click Create academic tables now.',
+        code: 'ACADEMIC_TABLES_MISSING',
+      });
+    }
+    return res.status(500).json({ error: 'Unable to bulk-assign modules.' });
+  } finally {
+    client.release();
+  }
+});
+
 router.get('/modules/:id/sheet', ...staffAccess, async (req, res) => {
   const id = Number(req.params.id);
   if (!Number.isInteger(id) || id < 1) return res.status(400).json({ error: 'Invalid module.' });
