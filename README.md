@@ -34,6 +34,7 @@ Node.js and PostgreSQL backend for the Lycee Saint Alexandre Sauli de Muhura sch
 - Result lookup is available to any signed-in parent account, as requested; it is not restricted to that parent's children.
 - 2FA (email OTP) is required for `admin`, `teacher`, and `secretary`.
 - Admin has full control of management endpoints (create/update/delete for site resources).
+- DOS accounts can review academic modules and publish generated class results, but cannot edit marks or administer staff and modules.
 - JWT validation enforces `HS256`, `issuer`, and `audience`.
 - Public contact message endpoint is rate-limited.
 
@@ -100,7 +101,7 @@ Node.js and PostgreSQL backend for the Lycee Saint Alexandre Sauli de Muhura sch
 - `DELETE /api/contact/messages/:id` - Admin deletes message
 
 ### Authentication
-- `POST /api/auth/register` - Register staff user (`admin`/`teacher`/`secretary`, requires `setupKey`)
+- `POST /api/auth/register` - Register staff user (`admin`/`teacher`/`secretary`/`dos`, requires `setupKey`)
 - `POST /api/auth/login` - Step 1 staff login (password + email OTP challenge)
 - `POST /api/auth/2fa/verify` - Step 2 staff login using OTP code
 - `GET /api/auth/me` - Get current user
@@ -153,7 +154,7 @@ Before using this feature, run the SQL migrations against the **same PostgreSQL 
 
 The academic workflow is additive and does not delete existing student records or published results. The administrator must have an active `admin` account. Teachers must have active `teacher` accounts in `users`; the Admin Workspace Academic Results tab can create these through the existing `/api/users` endpoint. Student `class_level` values must match the class codes used by the school frontend (for example `L3SWD`, `L4SWDA`, `L5NIT`, `S6ACC`).
 
-The admin can allocate a module to an active teacher, open the class marks sheet, enter CAT/practical/exam marks, save and submit the sheet, generate class results, and publish them. Assessment weights must total exactly 100%. The academic endpoints require the existing bearer-token authentication and role authorization.
+Admins can allocate modules, review and approve submissions, generate class results, and publish them. Teachers can view and edit only their assigned modules. DOS accounts can view class modules and publish a class only after results have been generated for every module; they cannot edit marks or perform admin management actions. Assessment weights must total exactly 100%. The academic endpoints require the existing bearer-token authentication and role authorization.
 
 Frontend configuration: set `VITE_API_BASE_URL` to this Render backend URL before building/deploying the frontend. Do not expose `SUPABASE_SERVICE_ROLE_KEY` or database credentials in frontend variables.
 
@@ -167,7 +168,8 @@ psql "$DATABASE_URL" -f migrations/2026-11-06_academic_workspace_upgrade.sql
 ```
 
 New endpoints:
-- `GET /api/academic/dashboard` — stats for admin/teacher
+- `GET /api/academic/dashboard` — stats for admin, DOS, or the logged-in teacher
+- `GET /api/academic/modules` — all modules for admin/DOS; assigned modules for teachers
 - `GET /api/academic/teacher-workspace` — levels + modules for the logged-in teacher
 - `GET /api/academic/levels` — level catalogue
 - `GET /api/academic/assignments` — teacher assignment matrix (admin)

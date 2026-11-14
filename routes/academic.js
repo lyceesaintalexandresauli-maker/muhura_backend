@@ -4,7 +4,8 @@ const { authenticateToken, authorizeRoles } = require('./auth');
 
 const router = express.Router();
 const adminOnly = [authenticateToken, authorizeRoles('admin')];
-const staffAccess = [authenticateToken, authorizeRoles('admin', 'teacher')];
+const staffAccess = [authenticateToken, authorizeRoles('admin', 'teacher', 'dos')];
+const publishAccess = [authenticateToken, authorizeRoles('admin', 'dos')];
 
 const classesByProgram = {
   SWD: ['L3SWD', 'L4SWDA', 'L4SWDB', 'L5SWD'],
@@ -66,7 +67,11 @@ const getModule = async (id) => {
 };
 
 const canAccessModule = (req, module) =>
-  req.user.role === 'admin' || Number(module.teacher_id) === Number(req.user.id);
+  ['admin', 'dos'].includes(req.user.role) || Number(module.teacher_id) === Number(req.user.id);
+
+const canEditModule = (req, module) =>
+  req.user.role === 'admin' ||
+  (req.user.role === 'teacher' && Number(module.teacher_id) === Number(req.user.id));
 
 const calculateFinal = (row, module) => {
   const required = [
@@ -99,9 +104,9 @@ const writeAudit = async (clientOrPool, actorId, action, entityType, entityId, d
 
 router.get('/dashboard', ...staffAccess, async (req, res) => {
   try {
-    const isAdmin = req.user.role === 'admin';
-    const teacherFilter = isAdmin ? '' : 'AND m.teacher_id = $1';
-    const teacherValues = isAdmin ? [] : [req.user.id];
+    const canViewAllModules = ['admin', 'dos'].includes(req.user.role);
+    const teacherFilter = canViewAllModules ? '' : 'AND m.teacher_id = $1';
+    const teacherValues = canViewAllModules ? [] : [req.user.id];
 
     const stats = await pool.query(
       `SELECT
@@ -131,14 +136,14 @@ router.get('/dashboard', ...staffAccess, async (req, res) => {
               m.status, m.updated_at, u.full_name AS teacher_name
        FROM academic_modules m
        JOIN users u ON u.id = m.teacher_id
-       WHERE m.is_active = TRUE ${isAdmin ? '' : 'AND m.teacher_id = $1'}
+       WHERE m.is_active = TRUE ${canViewAllModules ? '' : 'AND m.teacher_id = $1'}
        ORDER BY m.updated_at DESC
        LIMIT 12`,
       teacherValues
     );
 
     let teachersNotSubmitted = [];
-    if (isAdmin) {
+    if (req.user.role === 'admin') {
       const tns = await pool.query(
         `SELECT u.id, u.full_name, u.email,
                 COUNT(*) FILTER (WHERE m.status = 'draft')::int AS draft_count,
@@ -257,8 +262,9 @@ router.get('/levels', ...staffAccess, async (req, res) => {
 
 router.get('/modules', ...staffAccess, async (req, res) => {
   try {
-    const values = req.user.role === 'admin' ? [] : [req.user.id];
-    const where = req.user.role === 'admin' ? '' : 'WHERE m.teacher_id = $1';
+    const canViewAllModules = ['admin', 'dos'].includes(req.user.role);
+    const values = canViewAllModules ? [] : [req.user.id];
+    const where = canViewAllModules ? '' : 'WHERE m.teacher_id = $1';
     const result = await pool.query(
       `SELECT m.*, u.full_name AS teacher_name, u.email AS teacher_email,
         (SELECT COUNT(*)::int FROM students s WHERE s.is_active = TRUE AND s.class_level = m.class_level) AS student_count,
@@ -513,7 +519,7 @@ router.put('/modules/:id/marks', ...staffAccess, async (req, res) => {
       await client.query('ROLLBACK');
       return res.status(404).json({ error: 'Module not found.' });
     }
-    if (!canAccessModule(req, module)) {
+    if (!canEditModule(req, module)) {
       await client.query('ROLLBACK');
       return res.status(403).json({ error: 'This module is not assigned to your account.' });
     }
@@ -591,7 +597,7 @@ router.post('/modules/:id/submit', ...staffAccess, async (req, res) => {
   try {
     const module = await getModule(id);
     if (!module || !module.is_active) return res.status(404).json({ error: 'Module not found.' });
-    if (!canAccessModule(req, module)) return res.status(403).json({ error: 'This module is not assigned to your account.' });
+    if (!canEditModule(req, module)) return res.status(403).json({ error: 'This module is not assigned to your account.' });
     if (req.user.role !== 'admin' && !SUBMITTABLE_STATUSES.has(module.status)) {
       return res.status(409).json({ error: 'This marks sheet has already been submitted or is locked.' });
     }
@@ -870,7 +876,7 @@ router.post('/generate', ...adminOnly, async (req, res) => {
   }
 });
 
-router.post('/publish', ...adminOnly, async (req, res) => {
+router.post('/publish', ...publishAccess, async (req, res) => {
   const programCode = cleanText(req.body?.program_code, 10).toUpperCase();
   const classLevel = cleanText(req.body?.class_level, 30).toUpperCase();
   const academicYear = cleanText(req.body?.academic_year, 20);
