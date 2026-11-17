@@ -19,6 +19,10 @@ if (!Number.isInteger(configuredMaxUploadSizeMb) || configuredMaxUploadSizeMb < 
 }
 const maxUploadSizeMb = configuredMaxUploadSizeMb;
 const maxUploadSizeBytes = maxUploadSizeMb * 1024 * 1024;
+const parsePositiveInt = (value) => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
 const extensionMap = {
   image: new Set(['.jpeg', '.jpg', '.png', '.gif', '.webp']),
   video: new Set(['.mp4', '.avi', '.mov', '.mkv', '.webm']),
@@ -70,6 +74,7 @@ const upload = multer({
     return cb(new Error('Invalid file type'));
   }
 });
+
 const handleUpload = (req, res, next) => {
   upload.single('file')(req, res, (error) => {
     if (!error) return next();
@@ -224,6 +229,78 @@ router.get('/', ...adminOnly, async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(500).json({ error: 'Server error' });
+  }
+});
+
+router.get('/public/documents', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, original_name, size, created_at
+       FROM files
+       WHERE type = 'document'
+       ORDER BY created_at DESC`
+    );
+    return res.json(result.rows);
+  } catch (err) {
+    console.error('Failed to list public documents:', err);
+    return res.status(500).json({ error: 'Failed to load documents' });
+  }
+});
+
+router.get('/public/documents/:id/download', async (req, res) => {
+  try {
+    const id = parsePositiveInt(req.params.id);
+    if (!id) {
+      return res.status(400).json({ error: 'Invalid document id' });
+    }
+
+    const result = await pool.query(
+      `SELECT filename, original_name, path
+       FROM files
+       WHERE id = $1 AND type = 'document'`,
+      [id]
+    );
+    const file = result.rows[0];
+    if (!file) {
+      return res.status(404).json({ error: 'Document not found' });
+    }
+
+    const downloadName = path.basename(String(file.original_name || file.filename).replace(/\\/g, '/'));
+    if (file.path.startsWith('/uploads/')) {
+      const physicalPath = path.resolve(uploadsRoot, file.path.slice('/uploads/'.length));
+      const documentsRoot = path.resolve(uploadsRoot, 'documents') + path.sep;
+      if (!physicalPath.startsWith(documentsRoot)) {
+        return res.status(400).json({ error: 'Invalid document path' });
+      }
+
+      return res.download(physicalPath, downloadName, (err) => {
+        if (err && !res.headersSent) {
+          console.error('Failed to download local document:', err);
+          res.status(err.statusCode === 404 ? 404 : 500).json({
+            error: err.statusCode === 404 ? 'Document file not found' : 'Failed to download document'
+          });
+        }
+      });
+    }
+
+    const objectPath = String(file.filename || '').replace(/\\/g, '/');
+    if (!objectPath.startsWith('documents/') || objectPath.includes('..')) {
+      return res.status(400).json({ error: 'Invalid document path' });
+    }
+
+    const { data, error } = await getSupabaseAdminClient()
+      .storage
+      .from(storageBucket)
+      .download(objectPath);
+    if (error) {
+      throw error;
+    }
+
+    res.attachment(downloadName);
+    return res.send(Buffer.from(await data.arrayBuffer()));
+  } catch (err) {
+    console.error('Failed to download document:', err);
+    return res.status(500).json({ error: 'Failed to download document' });
   }
 });
 
