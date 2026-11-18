@@ -186,12 +186,15 @@ router.post('/', ...adminOnly, handleUpload, async (req, res) => {
         persisted = await persistToSupabaseStorage(req.file, targetFolder, storedFilename);
       } catch (storageError) {
         console.error('Supabase storage upload failed:', storageError);
-        const statusCode = Number(storageError.statusCode) === 413 ? 413 : 502;
+        const serviceRestricted = Number(storageError.statusCode) === 402 || /exceed_cached_egress_quota|project.{0,30}restricted/i.test(String(storageError.message || ''));
+        const statusCode = serviceRestricted ? 503 : Number(storageError.statusCode) === 413 ? 413 : 502;
         return res.status(statusCode).json({
-          error: statusCode === 413
+          error: serviceRestricted
+            ? 'Supabase Storage is unavailable because this project is restricted by its cached egress quota. Ask the Supabase project owner to restore service, then retry the upload.'
+            : statusCode === 413
             ? 'The storage bucket rejected this file because it exceeds the bucket upload limit. Increase the Supabase bucket limit or compress the video.'
             : 'The file could not be saved to shared storage. Check Supabase Storage configuration and try again.',
-          code: statusCode === 413 ? 'STORAGE_FILE_TOO_LARGE' : 'STORAGE_UPLOAD_FAILED'
+          code: serviceRestricted ? 'SUPABASE_PROJECT_RESTRICTED' : statusCode === 413 ? 'STORAGE_FILE_TOO_LARGE' : 'STORAGE_UPLOAD_FAILED'
         });
       }
     } else {
