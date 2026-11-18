@@ -35,6 +35,11 @@ CREATE TABLE events (
   category VARCHAR(50),
   image_path VARCHAR(500),
   video_url VARCHAR(2048),
+  audio_url VARCHAR(2048),
+  date DATE,
+  time VARCHAR(40),
+  location VARCHAR(180),
+  registration_link VARCHAR(2048),
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

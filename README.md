@@ -53,6 +53,8 @@ Node.js and PostgreSQL backend for the Lycee Saint Alexandre Sauli de Muhura sch
 - `PUT /api/events/:id` - Update event
 - `DELETE /api/events/:id` - Delete event
 
+Apply `migrations/2026-11-18_event_media_details.sql` before deploying the event media update to an existing database. New databases should use the updated `schema.sql`.
+
 ### Announcements
 - `GET /api/announcements` - Get all announcements
 - `POST /api/announcements` - Create announcement

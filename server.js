@@ -21,7 +21,7 @@ const assetDirectoryCandidates = [
   path.join(process.cwd(), '../school-frontend/public/assets')
 ];
 const assetsRoot = assetDirectoryCandidates.find((candidate) => fs.existsSync(candidate)) || assetDirectoryCandidates[0];
-const uploadFolders = ['images', 'videos', 'documents', 'profiles'];
+const uploadFolders = ['images', 'videos', 'audio', 'documents', 'profiles'];
 const trimTrailingSlash = (value = '') => String(value).replace(/\/+$/, '');
 const allowedOrigins = (process.env.CORS_ORIGIN || '')
   .split(',')

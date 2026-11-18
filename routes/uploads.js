@@ -26,6 +26,7 @@ const parsePositiveInt = (value) => {
 const extensionMap = {
   image: new Set(['.jpeg', '.jpg', '.png', '.gif', '.webp']),
   video: new Set(['.mp4', '.avi', '.mov', '.mkv', '.webm']),
+  audio: new Set(['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac']),
   document: new Set(['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx'])
 };
 
@@ -38,6 +39,9 @@ const getFileType = (file) => {
   }
   if (extensionMap.video.has(ext) || mimetype.startsWith('video/')) {
     return 'video';
+  }
+  if (extensionMap.audio.has(ext) || mimetype.startsWith('audio/')) {
+    return 'audio';
   }
   if (
     extensionMap.document.has(ext) ||
@@ -53,6 +57,7 @@ const getFileType = (file) => {
 const getFolderByType = (type) => {
   if (type === 'image') return 'images';
   if (type === 'video') return 'videos';
+  if (type === 'audio') return 'audio';
   return 'documents';
 };
 

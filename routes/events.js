@@ -72,12 +72,18 @@ router.post('/', ...adminOnly, async (req, res) => {
     const category = cleanText(req.body.category, 80);
     const imagePath = cleanText(req.body.image_path, 2048);
     const videoUrl = cleanText(req.body.video_url, 2048) || null;
+    const audioUrl = cleanText(req.body.audio_url, 2048) || null;
+    const date = req.body.date || null;
+    const time = cleanText(req.body.time, 40) || null;
+    const location = cleanText(req.body.location, 180) || null;
+    const registrationLink = cleanText(req.body.registration_link, 2048) || null;
     if (!title || !description) {
       return res.status(400).json({ error: 'title and description are required' });
     }
     const result = await pool.query(
-      'INSERT INTO events (title, description, category, image_path, video_url) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [title, description, category || null, imagePath || null, videoUrl]
+      `INSERT INTO events (title, description, category, image_path, video_url, audio_url, date, time, location, registration_link)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+      [title, description, category || null, imagePath || null, videoUrl, audioUrl, date, time, location, registrationLink]
     );
     return res.status(201).json(result.rows[0]);
   } catch (err) {
@@ -97,14 +103,27 @@ router.put('/:id', ...adminOnly, async (req, res) => {
     const category = cleanText(req.body.category, 80);
     const imagePath = cleanText(req.body.image_path, 2048);
     const videoUrl = req.body.video_url === undefined
-      ? null
+      ? undefined
       : cleanText(req.body.video_url, 2048) || null;
+    const audioUrl = req.body.audio_url === undefined
+      ? undefined
+      : cleanText(req.body.audio_url, 2048) || null;
+    const date = req.body.date === undefined ? undefined : req.body.date || null;
+    const time = req.body.time === undefined ? undefined : cleanText(req.body.time, 40) || null;
+    const location = req.body.location === undefined ? undefined : cleanText(req.body.location, 180) || null;
+    const registrationLink = req.body.registration_link === undefined
+      ? undefined
+      : cleanText(req.body.registration_link, 2048) || null;
     if (!title || !description) {
       return res.status(400).json({ error: 'title and description are required' });
     }
     const result = await pool.query(
-      'UPDATE events SET title = $1, description = $2, category = $3, image_path = $4, video_url = COALESCE($5, video_url) WHERE id = $6 RETURNING *',
-      [title, description, category || null, imagePath || null, videoUrl, id]
+      `UPDATE events SET title = $1, description = $2, category = $3, image_path = $4,
+       video_url = COALESCE($5, video_url), audio_url = COALESCE($6, audio_url),
+       date = COALESCE($7, date), time = COALESCE($8, time), location = COALESCE($9, location),
+       registration_link = COALESCE($10, registration_link)
+       WHERE id = $11 RETURNING *`,
+      [title, description, category || null, imagePath || null, videoUrl, audioUrl, date, time, location, registrationLink, id]
     );
     if (result.rows.length === 0) {
       return res.status(404).json({ error: 'Event not found' });
